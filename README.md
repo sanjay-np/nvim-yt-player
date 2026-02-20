@@ -4,16 +4,14 @@ Play YouTube audio directly from Neovim using **mpv** + **yt-dlp**. No browser, 
 
 ## ✨ Features
 
-- ▶️ Play any YouTube URL or search query from a Neovim command
-- ⏯ Play / Pause / Stop / Next / Previous
-- 🔊 Volume & mute control
-- ⏩ Seek (absolute & relative)
-- 🏎️ Playback speed (0.25x – 3.0x)
-- 🔀 Shuffle & repeat
-- 📊 Statusline integration with progress bar (lualine supported)
-- 🎛️ Interactive floating player window with keymaps
-- 🔔 Track change notifications
-- 🚀 Zero external dependencies beyond `mpv` and `yt-dlp`
+- **▶️ Seamless Playback**: Play any YouTube URL or search query instantly via a simple Neovim command.
+- **🏗️ Zero-Dependency Backend**: Runs entirely on pure Lua via a local UNIX socket. No browser extension, no Node.js requirement, no external bloated servers. Just `mpv` and `yt-dlp`.
+- **🎨 Premium ASCII Visualizer UI**: Implements a dedicated (`:YT ui`) animated player layout featuring a custom bounding-box grid, bouncy audio visualizer, interactive progress slidebar, and built-in queue alignment.
+- **🔍 Interactive Search Picker**: Search YouTube directly inside Neovim and preview video durations/channels in a native floating window buffer.
+- **🎵 Endless Queuing**: Instantly append streams or search results to your active `mpv` playlist queue (`<C-a>`) without interrupting your current playback.
+- **🎛️ Total Control**: Full mappings to Play/Pause, Seek, Skip, Mute, Volume, and manipulate Playback Speed (0.25x – 3.0x).
+- **📊 Statusline Integration**: Formats progress bars smoothly for plugins like `lualine`
+- **🔔 Asynchronous Stability**: Stream fetching runs in the background. Neovim will never freeze or block while caching metadata or traversing tracks.
 
 ## 📦 Requirements
 
