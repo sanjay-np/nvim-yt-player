@@ -70,10 +70,12 @@ function M.search(query, count, callback)
 
                     results[#results + 1] = {
                         title = type(item.title) == "string" and item.title or "Unknown",
-                        url = type(item.webpage_url) == "string" and item.webpage_url or (type(item.url) == "string" and item.url or ""),
+                        url = type(item.webpage_url) == "string" and item.webpage_url or
+                        (type(item.url) == "string" and item.url or ""),
                         id = type(item.id) == "string" and item.id or "",
                         duration = duration,
-                        channel = type(item.channel) == "string" and item.channel or (type(item.uploader) == "string" and item.uploader or ""),
+                        channel = type(item.channel) == "string" and item.channel or
+                        (type(item.uploader) == "string" and item.uploader or ""),
                     }
                 end
             end
@@ -96,6 +98,8 @@ function M.search(query, count, callback)
     stderr:read_start(function(err, data)
         if data then stderr_chunks[#stderr_chunks + 1] = data end
     end)
+
+    return handle
 end
 
 --- Format duration seconds to M:SS
@@ -139,6 +143,7 @@ function M.interactive_picker(initial_query)
 
     local is_searching = false
     local results = {}
+    local current_job = nil
 
     local function render_results()
         if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -168,7 +173,13 @@ function M.interactive_picker(initial_query)
         vim.cmd("stopinsert")
 
         local limit = require("yt-player").config.search.limit or 10
-        M.search(query, limit, function(res, err)
+
+        if current_job and not current_job:is_closing() then
+            pcall(function() current_job:kill(15) end) -- SIGTERM
+        end
+
+        current_job = M.search(query, limit, function(res, err)
+            current_job = nil
             if not vim.api.nvim_buf_is_valid(buf) then return end
             is_searching = false
             if err then
@@ -283,6 +294,17 @@ function M.interactive_picker(initial_query)
         vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
         vim.cmd("startinsert!")
     end
+
+    -- Cleanup job on window close to avoid orphaned processes wasting CPU/Network
+    vim.api.nvim_create_autocmd("BufWipeout", {
+        buffer = buf,
+        once = true,
+        callback = function()
+            if current_job and not current_job:is_closing() then
+                pcall(function() current_job:kill(15) end)
+            end
+        end,
+    })
 end
 
 return M
