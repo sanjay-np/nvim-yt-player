@@ -60,13 +60,20 @@ function M.search(query, count, callback)
             -- yt-dlp outputs one JSON object per line
             for line in raw:gmatch("[^\n]+") do
                 local ok, item = pcall(vim.json.decode, line)
-                if ok and item then
+                if ok and type(item) == "table" then
+                    local duration = 0
+                    if type(item.duration) == "number" then
+                        duration = item.duration
+                    elseif type(item.duration) == "string" then
+                        duration = tonumber(item.duration) or 0
+                    end
+
                     results[#results + 1] = {
-                        title = item.title or "Unknown",
-                        url = item.webpage_url or item.url or "",
-                        id = item.id or "",
-                        duration = item.duration or 0,
-                        channel = item.channel or item.uploader or "",
+                        title = type(item.title) == "string" and item.title or "Unknown",
+                        url = type(item.webpage_url) == "string" and item.webpage_url or (type(item.url) == "string" and item.url or ""),
+                        id = type(item.id) == "string" and item.id or "",
+                        duration = duration,
+                        channel = type(item.channel) == "string" and item.channel or (type(item.uploader) == "string" and item.uploader or ""),
                     }
                 end
             end
@@ -93,7 +100,7 @@ end
 
 --- Format duration seconds to M:SS
 local function fmt_duration(sec)
-    if not sec or sec <= 0 then return "" end
+    if type(sec) ~= "number" or sec <= 0 then return "" end
     return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
 end
 
