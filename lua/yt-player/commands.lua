@@ -152,6 +152,21 @@ function M._register()
       end,
       desc = "Queue a URL to the playlist",
       nargs = 1
+    },
+    queue_edit = {
+      impl = function() require("yt-player.queue").open() end,
+      desc = "Interactive Queue Management",
+    },
+    queue_playlist = {
+      impl = function(args)
+        if not args or args == "" then
+          vim.notify("YT Control: Provide a playlist URL", vim.log.levels.ERROR)
+          return
+        end
+        require("yt-player.search").fetch_playlist(args)
+      end,
+      desc = "Queue an entire YouTube Playlist",
+      nargs = 1
     }
   }
 

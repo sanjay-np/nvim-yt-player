@@ -8,7 +8,9 @@ Play YouTube audio directly from Neovim using **mpv** + **yt-dlp**. No browser, 
 - **🏗️ Zero-Dependency Backend**: Runs entirely on pure Lua via a local UNIX socket. No browser extension, no Node.js requirement, no external bloated servers. Just `mpv` and `yt-dlp`.
 - **🎨 Premium ASCII Visualizer UI**: Implements a dedicated (`:YT ui`) animated player layout featuring a custom bounding-box grid, bouncy audio visualizer, interactive progress slidebar, and built-in queue alignment.
 - **🔍 Interactive Search Picker**: Search YouTube directly inside Neovim and preview video durations/channels in a native floating window buffer.
-- **🎵 Endless Queuing**: Instantly append streams or search results to your active `mpv` playlist queue (`<C-a>`) without interrupting your current playback.
+- **📝 Interactive Queue Editor**: View and modify your active queue in real-time. Use `dd` to remove tracks or `J`/`K` to reorder them (`:YT queue_edit`).
+- **🎵 Endless Queuing & Playlists**: Instantly append streams or search results to your queue. You can even pass a full YouTube Playlist URL to rapidly ingest 100+ tracks (`:YT queue_playlist`).
+- **⏩ SponsorBlock Integration**: Natively caches and injects an mpv script to automatically skip sponsor and intro segments in YouTube videos (enable via config).
 - **🎛️ Total Control**: Full mappings to Play/Pause, Seek, Skip, Mute, Volume, and manipulate Playback Speed (0.25x – 3.0x).
 - **📊 Statusline Integration**: Formats progress bars smoothly for plugins like `lualine`
 - **🔔 Asynchronous Stability**: Stream fetching runs in the background. Neovim will never freeze or block while caching metadata or traversing tracks.
@@ -69,7 +71,9 @@ All functionality is grouped under a single `:YT` command with auto-completion (
 |---------|-------------|
 | `:YT play [url]` | Play URL / search, or resume |
 | `:YT search [query]` | 🔍 Search YouTube and pick a result |
-| `:YT queue <url>` | Append a URL to the playlist |
+| `:YT queue <url>` | Append a single URL to the playlist |
+| `:YT queue_playlist <url>` | Fetch and append an entire playlist |
+| `:YT queue_edit` | Open interactive queue editor |
 | `:YT pause` | Pause |
 | `:YT toggle` | Toggle play/pause |
 | `:YT stop` | Stop playback |
@@ -126,10 +130,16 @@ require("yt-player").setup({
     notify_on_command = false,
   },
 
+  player = {
+    queue_display_limit = 5, -- Number of upcoming tracks to show in the `:YT ui` side-panel
+  },
+
   keymaps = {
     enabled = false,
     prefix = "<leader>y",
   },
+  
+  sponsorblock = false, -- Set to true to automatically skip embedded sponsor segments
 })
 ```
 

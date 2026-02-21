@@ -22,6 +22,61 @@ function M.setup(config)
   M.shutting_down = false
 end
 
+local function ensure_sponsorblock_script()
+  local script_path = vim.fn.stdpath("cache") .. "/yt_sponsorblock.lua"
+  if vim.fn.filereadable(script_path) == 1 then return script_path end
+
+  -- A minimal local Lua sponsorblock script for MPV
+  local script_content = [[
+local mp = require 'mp'
+local utils = require 'mp.utils'
+local msg = require 'mp.msg'
+
+local function fetch_segments(video_id)
+    local url = "https://sponsor.ajay.app/api/skipSegments?videoID=" .. video_id .. "&categories=[\"sponsor\",\"intro\",\"outro\",\"interaction\",\"selfpromo\",\"music_offtopic\"]"
+    local res = utils.subprocess({ args = {"curl", "-s", url}, assert = false })
+    if res.status ~= 0 or res.stdout == "" then return nil end
+    local ok, parsed = pcall(utils.parse_json, res.stdout)
+    if ok and type(parsed) == "table" then return parsed else return nil end
+end
+
+local segments = nil
+
+mp.register_event("file-loaded", function()
+    segments = nil
+    local path = mp.get_property("path")
+    if not path then return end
+    local video_id = string.match(path, "v=([a-zA-Z0-9_-]{11})") or string.match(path, "youtu%.be/([a-zA-Z0-9_-]{11})")
+    if not video_id then return end
+
+    msg.info("Fetching SponsorBlock for " .. video_id)
+    segments = fetch_segments(video_id)
+end)
+
+mp.add_periodic_timer(1, function()
+    if not segments then return end
+    local pos = mp.get_property_number("time-pos")
+    if not pos then return end
+
+    for _, seg in ipairs(segments) do
+        if seg.segment and pos >= seg.segment[1] and pos < seg.segment[2] then
+            msg.info("Skipping sponsor segment: " .. seg.category)
+            mp.set_property_number("time-pos", seg.segment[2])
+            mp.osd_message("Skipped " .. seg.category, 3)
+            return
+        end
+    end
+end)
+]]
+  local f = io.open(script_path, "w")
+  if f then
+    f:write(script_content)
+    f:close()
+    return script_path
+  end
+  return nil
+end
+
 --- Start mpv with IPC enabled. If a url is provided, it is passed directly
 --- on the command line so playback begins immediately without waiting for IPC.
 ---@param url string|nil  Optional URL to play immediately
@@ -51,6 +106,13 @@ function M.start(url)
     "--no-terminal",
     "--input-ipc-server=" .. M.ipc_socket_path,
   }
+
+  if M.config.sponsorblock then
+    local script_path = ensure_sponsorblock_script()
+    if script_path then
+      table.insert(cmd, "--script=" .. script_path)
+    end
+  end
 
   -- If we have a URL, pass it directly so playback starts immediately
   -- Otherwise start in idle mode

@@ -71,11 +71,11 @@ function M.search(query, count, callback)
                     results[#results + 1] = {
                         title = type(item.title) == "string" and item.title or "Unknown",
                         url = type(item.webpage_url) == "string" and item.webpage_url or
-                        (type(item.url) == "string" and item.url or ""),
+                            (type(item.url) == "string" and item.url or ""),
                         id = type(item.id) == "string" and item.id or "",
                         duration = duration,
                         channel = type(item.channel) == "string" and item.channel or
-                        (type(item.uploader) == "string" and item.uploader or ""),
+                            (type(item.uploader) == "string" and item.uploader or ""),
                     }
                 end
             end
@@ -100,6 +100,90 @@ function M.search(query, count, callback)
     end)
 
     return handle
+end
+
+--- Fetch a full YouTube playlist and seamlessly append all tracks to the mpv queue
+---@param url string  Playlist URL
+function M.fetch_playlist(url)
+    if vim.fn.executable("yt-dlp") == 0 then
+        vim.notify("YT Control: yt-dlp is not installed", vim.log.levels.ERROR)
+        return
+    end
+
+    local mpv = require("yt-player.mpv")
+    local state_mod = require("yt-player.state")
+
+    -- Make sure mpv is running first so we can queue to it
+    if not mpv.is_running() then
+        mpv.start()
+    end
+
+    vim.notify("YT Control: Fetching playlist...", vim.log.levels.INFO)
+
+    local args = {
+        "yt-dlp",
+        "--flat-playlist",
+        "--dump-json",
+        "--no-warnings",
+        url,
+    }
+
+    local stdout = vim.loop.new_pipe(false)
+    local handle
+
+    handle = vim.loop.spawn(args[1], {
+        args = vim.list_slice(args, 2),
+        stdio = { nil, stdout, nil },
+    }, function(code)
+        if stdout then
+            pcall(function()
+                stdout:read_stop(); stdout:close()
+            end)
+        end
+        if handle then pcall(function() handle:close() end) end
+
+        vim.schedule(function()
+            if code == 0 then
+                vim.notify("YT Control: Finished queuing playlist!", vim.log.levels.INFO)
+            else
+                vim.notify("YT Control: Failed to fetch playlist", vim.log.levels.ERROR)
+            end
+        end)
+    end)
+
+    if not handle then
+        if stdout then pcall(function() stdout:close() end) end
+        return
+    end
+
+    local partial = ""
+    stdout:read_start(function(err, data)
+        if data then
+            partial = partial .. data
+            while true do
+                local newline = partial:find("\n")
+                if not newline then break end
+
+                local line = partial:sub(1, newline - 1)
+                partial = partial:sub(newline + 1)
+
+                local ok, item = pcall(vim.json.decode, line)
+                if ok and type(item) == "table" then
+                    local item_url = type(item.webpage_url) == "string" and item.webpage_url or
+                    (type(item.url) == "string" and item.url or "")
+                    local item_title = type(item.title) == "string" and item.title or "Unknown"
+                    if item_url ~= "" then
+                        vim.schedule(function()
+                            -- Pre-cache title so the UI shows it immediately
+                            state_mod.current.playlist_meta = state_mod.current.playlist_meta or {}
+                            state_mod.current.playlist_meta[item_url] = item_title
+                            mpv.send_command({ "loadfile", item_url, "append" })
+                        end)
+                    end
+                end
+            end
+        end
+    end)
 end
 
 --- Format duration seconds to M:SS

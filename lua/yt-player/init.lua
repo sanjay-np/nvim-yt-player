@@ -20,6 +20,10 @@ M.config = {
     notify_on_track_change = true,
   },
 
+  player = {
+    queue_display_limit = 5, -- Minimum/Maximum number of upcoming tracks to show in the player UI
+  },
+
   keymaps = {
     enabled = false,
     prefix = "<leader>y",
@@ -37,6 +41,8 @@ M.config = {
     speed_down = "<",
     info = "i",
   },
+
+  sponsorblock = false, -- Set to true to enable auto-skipping
 }
 
 function M.setup(opts)

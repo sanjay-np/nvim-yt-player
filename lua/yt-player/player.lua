@@ -126,14 +126,15 @@ local function build_lines(state)
         local top_border = string.format(" ╭─ Queue %s%s╮", count_txt, string.rep("─", 32 - #count_txt))
         table.insert(lines, top_border)
 
+        local limit = require("yt-player").config.player.queue_display_limit or 5
         local start_idx = math.max(1, (state.playlist_pos or 0) - 1)
-        local end_idx = math.min(#state.playlist, start_idx + 4)
+        local end_idx = math.min(#state.playlist, start_idx + limit - 1)
 
         for i = start_idx, end_idx do
             local item = state.playlist[i]
             local prefix = (i - 1 == state.playlist_pos) and " > " or "   "
             local item_title = item.title or (state.playlist_meta and state.playlist_meta[item.filename]) or
-            item.filename or "Unknown"
+                item.filename or "Unknown"
 
             local queue_item = string.format("%s%d. %s", prefix, i, item_title)
             add_row(queue_item)
