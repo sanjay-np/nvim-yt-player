@@ -170,7 +170,7 @@ function M.fetch_playlist(url)
                 local ok, item = pcall(vim.json.decode, line)
                 if ok and type(item) == "table" then
                     local item_url = type(item.webpage_url) == "string" and item.webpage_url or
-                    (type(item.url) == "string" and item.url or "")
+                        (type(item.url) == "string" and item.url or "")
                     local item_title = type(item.title) == "string" and item.title or "Unknown"
                     if item_url ~= "" then
                         vim.schedule(function()
@@ -225,6 +225,15 @@ function M.interactive_picker(initial_query)
     local ns = vim.api.nvim_create_namespace("yt_search")
     vim.api.nvim_buf_add_highlight(buf, ns, "Title", 0, 0, #prompt_prefix)
 
+    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+        buffer = buf,
+        callback = function()
+            if not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_win_is_valid(win) then return end
+            local r = vim.api.nvim_win_get_cursor(win)[1]
+            vim.bo[buf].modifiable = (r == 1)
+        end
+    })
+
     local is_searching = false
     local results = {}
     local current_job = nil
@@ -241,7 +250,6 @@ function M.interactive_picker(initial_query)
 
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, 2, -1, false, display)
-        vim.bo[buf].modifiable = false
     end
 
     local function do_search()
@@ -269,14 +277,12 @@ function M.interactive_picker(initial_query)
             if err then
                 vim.bo[buf].modifiable = true
                 vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ❌ Error: " .. err })
-                vim.bo[buf].modifiable = false
                 return
             end
 
             if #res == 0 then
                 vim.bo[buf].modifiable = true
                 vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ❌ No results found." })
-                vim.bo[buf].modifiable = false
                 return
             end
 
@@ -299,8 +305,8 @@ function M.interactive_picker(initial_query)
         if vim.fn.mode() == "i" then vim.cmd("stopinsert") end
         local res = get_current_result()
         if res and res.url ~= "" then
-            vim.api.nvim_win_close(win, true)
             require("yt-player").load(res.url)
+            vim.notify("YT Control: Playing -> " .. res.title, vim.log.levels.INFO)
         end
     end
 
@@ -316,7 +322,6 @@ function M.interactive_picker(initial_query)
             -- Optional: don't close window instantly on append, let them queue multiple
             local mpv = require("yt-player.mpv")
             if not mpv.is_running() then
-                vim.api.nvim_win_close(win, true)
                 require("yt-player").load(res.url)
             else
                 mpv.send_command({ "loadfile", res.url, "append-play" })
@@ -363,10 +368,18 @@ function M.interactive_picker(initial_query)
     vim.keymap.set("i", "<Tab>", function() jump(1) end, opts)
 
     vim.keymap.set("n", "q", function() vim.api.nvim_win_close(win, true) end, opts)
+
+    vim.keymap.set("n", "/", function()
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
+        vim.cmd("startinsert!")
+    end, opts)
+
     vim.keymap.set("n", "<Esc>", function()
         if vim.api.nvim_win_get_cursor(win)[1] == 1 then
             vim.api.nvim_win_close(win, true)
         else
+            vim.bo[buf].modifiable = true
             vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
             vim.cmd("startinsert!")
         end
