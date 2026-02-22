@@ -35,7 +35,10 @@ function M.update(data)
     end
   end
 
-  M.current = vim.tbl_deep_extend("force", M.current, data)
+  -- Shallow merge (avoids tbl_deep_extend overhead on frequent time-pos updates)
+  for k, v in pairs(data) do
+    M.current[k] = v
+  end
 
   local now = vim.loop.now()
   if now - last_redraw > 200 then

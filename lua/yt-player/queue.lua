@@ -27,7 +27,7 @@ local function render_queue()
         for i, item in ipairs(plist) do
             local prefix = (i - 1 == state.playlist_pos) and " ▶ " or "   "
             local title = item.title or (state.playlist_meta and state.playlist_meta[item.filename]) or item.filename or
-            "Unknown"
+                "Unknown"
             table.insert(lines, string.format("%s%d. %s", prefix, i, title))
         end
     end
@@ -131,6 +131,20 @@ function M.open()
             timer:close()
         end
     end))
+
+    -- Ensure timer cleanup when buffer is wiped
+    vim.api.nvim_create_autocmd("BufWipeout", {
+        buffer = M.buf_id,
+        once = true,
+        callback = function()
+            if timer and not timer:is_closing() then
+                timer:stop()
+                timer:close()
+            end
+            M.win_id = nil
+            M.buf_id = nil
+        end,
+    })
 end
 
 return M
