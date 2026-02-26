@@ -7,401 +7,491 @@ local M = {}
 ---@param count number|nil  Number of results (default 10)
 ---@param callback fun(results: table[], err: string|nil)
 function M.search(query, count, callback)
-    count = count or 10
+	count = count or 10
 
-    if vim.fn.executable("yt-dlp") == 0 then
-        callback({}, "yt-dlp is not installed or not in PATH")
-        return
-    end
+	if vim.fn.executable("yt-dlp") == 0 then
+		callback({}, "yt-dlp is not installed or not in PATH")
+		return
+	end
 
-    local search_url = string.format("ytsearch%d:%s", count, query)
-    local args = {
-        "yt-dlp",
-        "--flat-playlist",
-        "--dump-json",
-        "--no-warnings",
-        "--no-download",
-        search_url,
-    }
+	local search_url = string.format("ytsearch%d:%s", count, query)
+	local args = {
+		"yt-dlp",
+		"--flat-playlist",
+		"--dump-json",
+		"--no-warnings",
+		"--no-download",
+		search_url,
+	}
 
-    local stdout_chunks = {}
-    local stderr_chunks = {}
+	local stdout_chunks = {}
+	local stderr_chunks = {}
 
-    local stdout = vim.loop.new_pipe(false)
-    local stderr = vim.loop.new_pipe(false)
+	local stdout = vim.loop.new_pipe(false)
+	local stderr = vim.loop.new_pipe(false)
 
-    local handle
-    handle = vim.loop.spawn(args[1], {
-        args = vim.list_slice(args, 2),
-        stdio = { nil, stdout, stderr },
-    }, function(code)
-        -- Close all handles
-        if stdout then
-            pcall(function()
-                stdout:read_stop(); stdout:close()
-            end)
-        end
-        if stderr then
-            pcall(function()
-                stderr:read_stop(); stderr:close()
-            end)
-        end
-        if handle then pcall(function() handle:close() end) end
+	local handle
+	handle = vim.loop.spawn(args[1], {
+		args = vim.list_slice(args, 2),
+		stdio = { nil, stdout, stderr },
+	}, function(code)
+		-- Close all handles
+		if stdout then
+			pcall(function()
+				stdout:read_stop()
+				stdout:close()
+			end)
+		end
+		if stderr then
+			pcall(function()
+				stderr:read_stop()
+				stderr:close()
+			end)
+		end
+		if handle then
+			pcall(function()
+				handle:close()
+			end)
+		end
 
-        vim.schedule(function()
-            if code ~= 0 then
-                callback({}, table.concat(stderr_chunks, ""))
-                return
-            end
+		vim.schedule(function()
+			if code ~= 0 then
+				callback({}, table.concat(stderr_chunks, ""))
+				return
+			end
 
-            local results = {}
-            local raw = table.concat(stdout_chunks, "")
+			local results = {}
+			local raw = table.concat(stdout_chunks, "")
 
-            -- yt-dlp outputs one JSON object per line
-            for line in raw:gmatch("[^\n]+") do
-                local ok, item = pcall(vim.json.decode, line)
-                if ok and type(item) == "table" then
-                    local duration = 0
-                    if type(item.duration) == "number" then
-                        duration = item.duration
-                    elseif type(item.duration) == "string" then
-                        duration = tonumber(item.duration) or 0
-                    end
+			-- yt-dlp outputs one JSON object per line
+			for line in raw:gmatch("[^\n]+") do
+				local ok, item = pcall(vim.json.decode, line)
+				if ok and type(item) == "table" then
+					local duration = 0
+					if type(item.duration) == "number" then
+						duration = item.duration
+					elseif type(item.duration) == "string" then
+						duration = tonumber(item.duration) or 0
+					end
 
-                    results[#results + 1] = {
-                        title = type(item.title) == "string" and item.title or "Unknown",
-                        url = type(item.webpage_url) == "string" and item.webpage_url or
-                            (type(item.url) == "string" and item.url or ""),
-                        id = type(item.id) == "string" and item.id or "",
-                        duration = duration,
-                        channel = type(item.channel) == "string" and item.channel or
-                            (type(item.uploader) == "string" and item.uploader or ""),
-                    }
-                end
-            end
+					results[#results + 1] = {
+						title = type(item.title) == "string" and item.title or "Unknown",
+						url = type(item.webpage_url) == "string" and item.webpage_url
+							or (type(item.url) == "string" and item.url or ""),
+						id = type(item.id) == "string" and item.id or "",
+						duration = duration,
+						channel = type(item.channel) == "string" and item.channel
+							or (type(item.uploader) == "string" and item.uploader or ""),
+					}
+				end
+			end
 
-            callback(results, nil)
-        end)
-    end)
+			callback(results, nil)
+		end)
+	end)
 
-    if not handle then
-        if stdout then pcall(function() stdout:close() end) end
-        if stderr then pcall(function() stderr:close() end) end
-        callback({}, "Failed to spawn yt-dlp")
-        return
-    end
+	if not handle then
+		if stdout then
+			pcall(function()
+				stdout:close()
+			end)
+		end
+		if stderr then
+			pcall(function()
+				stderr:close()
+			end)
+		end
+		callback({}, "Failed to spawn yt-dlp")
+		return
+	end
 
-    stdout:read_start(function(err, data)
-        if data then stdout_chunks[#stdout_chunks + 1] = data end
-    end)
+	stdout:read_start(function(_, data)
+		if data then
+			stdout_chunks[#stdout_chunks + 1] = data
+		end
+	end)
 
-    stderr:read_start(function(err, data)
-        if data then stderr_chunks[#stderr_chunks + 1] = data end
-    end)
+	stderr:read_start(function(_, data)
+		if data then
+			stderr_chunks[#stderr_chunks + 1] = data
+		end
+	end)
 
-    return handle
+	return handle
 end
 
 --- Fetch a full YouTube playlist and seamlessly append all tracks to the mpv queue
 ---@param url string  Playlist URL
 function M.fetch_playlist(url)
-    if vim.fn.executable("yt-dlp") == 0 then
-        vim.notify("YT Control: yt-dlp is not installed", vim.log.levels.ERROR)
-        return
-    end
+	if vim.fn.executable("yt-dlp") == 0 then
+		vim.notify("YT Control: yt-dlp is not installed", vim.log.levels.ERROR)
+		return
+	end
 
-    local mpv = require("yt-player.mpv")
-    local state_mod = require("yt-player.state")
+	local mpv = require("yt-player.mpv")
+	local state_mod = require("yt-player.state")
 
-    -- Make sure mpv is running first so we can queue to it
-    if not mpv.is_running() then
-        mpv.start()
-    end
+	-- Make sure mpv is running first so we can queue to it
+	if not mpv.is_running() then
+		mpv.start()
+	end
 
-    vim.notify("YT Control: Fetching playlist...", vim.log.levels.INFO)
+	vim.notify("YT Control: Fetching playlist...", vim.log.levels.INFO)
 
-    local args = {
-        "yt-dlp",
-        "--flat-playlist",
-        "--dump-json",
-        "--no-warnings",
-        url,
-    }
+	local args = {
+		"yt-dlp",
+		"--flat-playlist",
+		"--dump-json",
+		"--no-warnings",
+		url,
+	}
 
-    local stdout = vim.loop.new_pipe(false)
-    local handle
+	local stdout = vim.loop.new_pipe(false)
+	local handle
 
-    handle = vim.loop.spawn(args[1], {
-        args = vim.list_slice(args, 2),
-        stdio = { nil, stdout, nil },
-    }, function(code)
-        if stdout then
-            pcall(function()
-                stdout:read_stop(); stdout:close()
-            end)
-        end
-        if handle then pcall(function() handle:close() end) end
+	handle = vim.loop.spawn(args[1], {
+		args = vim.list_slice(args, 2),
+		stdio = { nil, stdout, nil },
+	}, function(code)
+		if stdout then
+			pcall(function()
+				stdout:read_stop()
+				stdout:close()
+			end)
+		end
+		if handle then
+			pcall(function()
+				handle:close()
+			end)
+		end
 
-        vim.schedule(function()
-            if code == 0 then
-                vim.notify("YT Control: Finished queuing playlist!", vim.log.levels.INFO)
-            else
-                vim.notify("YT Control: Failed to fetch playlist", vim.log.levels.ERROR)
-            end
-        end)
-    end)
+		vim.schedule(function()
+			if code == 0 then
+				vim.notify("YT Control: Finished queuing playlist!", vim.log.levels.INFO)
+			else
+				vim.notify("YT Control: Failed to fetch playlist", vim.log.levels.ERROR)
+			end
+		end)
+	end)
 
-    if not handle then
-        if stdout then pcall(function() stdout:close() end) end
-        return
-    end
+	if not handle then
+		if stdout then
+			pcall(function()
+				stdout:close()
+			end)
+		end
+		return
+	end
 
-    local partial = ""
-    stdout:read_start(function(err, data)
-        if data then
-            partial = partial .. data
-            while true do
-                local newline = partial:find("\n")
-                if not newline then break end
+	local partial = ""
+	stdout:read_start(function(_, data)
+		if data then
+			partial = partial .. data
+			while true do
+				local newline = partial:find("\n")
+				if not newline then
+					break
+				end
 
-                local line = partial:sub(1, newline - 1)
-                partial = partial:sub(newline + 1)
+				local line = partial:sub(1, newline - 1)
+				partial = partial:sub(newline + 1)
 
-                local ok, item = pcall(vim.json.decode, line)
-                if ok and type(item) == "table" then
-                    local item_url = type(item.webpage_url) == "string" and item.webpage_url or
-                        (type(item.url) == "string" and item.url or "")
-                    local item_title = type(item.title) == "string" and item.title or "Unknown"
-                    if item_url ~= "" then
-                        vim.schedule(function()
-                            -- Pre-cache title so the UI shows it immediately
-                            state_mod.current.playlist_meta = state_mod.current.playlist_meta or {}
-                            state_mod.current.playlist_meta[item_url] = item_title
-                            mpv.send_command({ "loadfile", item_url, "append" })
-                        end)
-                    end
-                end
-            end
-        end
-    end)
+				local ok, item = pcall(vim.json.decode, line)
+				if ok and type(item) == "table" then
+					local item_url = type(item.webpage_url) == "string" and item.webpage_url
+						or (type(item.url) == "string" and item.url or "")
+					local item_title = type(item.title) == "string" and item.title or "Unknown"
+					if item_url ~= "" then
+						vim.schedule(function()
+							-- Pre-cache title so the UI shows it immediately
+							state_mod.current.playlist_meta = state_mod.current.playlist_meta or {}
+							state_mod.current.playlist_meta[item_url] = item_title
+							mpv.send_command({ "loadfile", item_url, "append" })
+						end)
+					end
+				end
+			end
+		end
+	end)
 end
 
 --- Format duration seconds to M:SS
 local function fmt_duration(sec)
-    if type(sec) ~= "number" or sec <= 0 then return "" end
-    return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+	if type(sec) ~= "number" or sec <= 0 then
+		return ""
+	end
+	return string.format("%d:%02d", math.floor(sec / 60), sec % 60)
 end
 
 --- Open an interactive search window
 ---@param initial_query string|nil
 function M.interactive_picker(initial_query)
-    local buf = vim.api.nvim_create_buf(false, true)
+	local buf = vim.api.nvim_create_buf(false, true)
 
-    local width = math.floor(vim.o.columns * 0.7)
-    local height = math.floor(vim.o.lines * 0.8)
-    local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
-    local col = math.max(0, math.floor((vim.o.columns - width) / 2))
+	local width = math.floor(vim.o.columns * 0.7)
+	local height = math.floor(vim.o.lines * 0.8)
+	local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
+	local col = math.max(0, math.floor((vim.o.columns - width) / 2))
 
-    local win = vim.api.nvim_open_win(buf, true, {
-        relative = "editor",
-        row = row,
-        col = col,
-        width = width,
-        height = height,
-        style = "minimal",
-        border = "rounded",
-        title = " 🎵 YouTube Search ",
-        title_pos = "center",
-    })
+	local win = vim.api.nvim_open_win(buf, true, {
+		relative = "editor",
+		row = row,
+		col = col,
+		width = width,
+		height = height,
+		style = "minimal",
+		border = "rounded",
+		title = " 🎵 YouTube Search ",
+		title_pos = "center",
+	})
 
-    vim.wo[win].cursorline = true
+	vim.wo[win].cursorline = true
 
-    -- Initialize buffer
-    local prompt_prefix = " 🔍 Query: "
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false,
-        { prompt_prefix .. (initial_query or ""), "", "    Type your query and press Enter..." })
+	-- Initialize buffer
+	local prompt_prefix = " 🔍 Query: "
+	vim.api.nvim_buf_set_lines(
+		buf,
+		0,
+		-1,
+		false,
+		{ prompt_prefix .. (initial_query or ""), "", "    Type your query and press Enter..." }
+	)
 
-    -- Highlight prompt
-    local ns = vim.api.nvim_create_namespace("yt_search")
-    vim.api.nvim_buf_add_highlight(buf, ns, "Title", 0, 0, #prompt_prefix)
+	-- Highlight prompt
+	local ns = vim.api.nvim_create_namespace("yt_search")
+	vim.api.nvim_buf_add_highlight(buf, ns, "Title", 0, 0, #prompt_prefix)
 
-    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-        buffer = buf,
-        callback = function()
-            if not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_win_is_valid(win) then return end
-            local r = vim.api.nvim_win_get_cursor(win)[1]
-            vim.bo[buf].modifiable = (r == 1)
-        end
-    })
+	vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+		buffer = buf,
+		callback = function()
+			if not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_win_is_valid(win) then
+				return
+			end
+			local r = vim.api.nvim_win_get_cursor(win)[1]
 
-    local is_searching = false
-    local results = {}
-    local current_job = nil
+			if r == 1 then
+				vim.bo[buf].modifiable = true
+			else
+				vim.bo[buf].modifiable = (r == 1)
+			end
+		end,
+	})
 
-    local function render_results()
-        if not vim.api.nvim_buf_is_valid(buf) then return end
-        local display = {}
-        for i, r in ipairs(results) do
-            table.insert(display, string.format(" %d. %s", i, r.title))
-            table.insert(display, string.format("    📺 %s  ⏱ %s", r.channel, fmt_duration(r.duration)))
-            table.insert(display, "")
-        end
-        if #display > 0 then table.remove(display) end -- remove last spacer
+	local is_searching = false
+	local results = {}
+	local current_job = nil
 
-        vim.bo[buf].modifiable = true
-        vim.api.nvim_buf_set_lines(buf, 2, -1, false, display)
-    end
+	local function render_results()
+		if not vim.api.nvim_buf_is_valid(buf) then
+			return
+		end
+		local display = {}
+		for i, r in ipairs(results) do
+			table.insert(display, string.format(" %d. %s", i, r.title))
+			table.insert(display, string.format("    📺 %s  ⏱ %s", r.channel, fmt_duration(r.duration)))
+			table.insert(display, "")
+		end
+		if #display > 0 then
+			table.remove(display)
+		end -- remove last spacer
 
-    local function do_search()
-        local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
-        local query = line:gsub("^%s*🔍 Query:%s*", "")
-        query = vim.trim(query)
-        if query == "" then return end
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 2, -1, false, display)
+	end
 
-        is_searching = true
-        results = {}
-        vim.bo[buf].modifiable = true
-        vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ⏳ Searching for '" .. query .. "'..." })
-        vim.cmd("stopinsert")
+	local function do_search()
+		local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+		local query = line:gsub("^%s*🔍 Query:%s*", "")
+		query = vim.trim(query)
+		if query == "" then
+			return
+		end
 
-        local limit = require("yt-player").config.search.limit or 10
+		is_searching = true
+		results = {}
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ⏳ Searching for '" .. query .. "'..." })
+		vim.cmd("stopinsert")
 
-        if current_job and not current_job:is_closing() then
-            pcall(function() current_job:kill(15) end) -- SIGTERM
-        end
+		local limit = require("yt-player").config.search.limit or 10
 
-        current_job = M.search(query, limit, function(res, err)
-            current_job = nil
-            if not vim.api.nvim_buf_is_valid(buf) then return end
-            is_searching = false
-            if err then
-                vim.bo[buf].modifiable = true
-                vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ❌ Error: " .. err })
-                return
-            end
+		if current_job and not current_job:is_closing() then
+			pcall(function()
+				current_job:kill(15)
+			end) -- SIGTERM
+		end
 
-            if #res == 0 then
-                vim.bo[buf].modifiable = true
-                vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ❌ No results found." })
-                return
-            end
+		current_job = M.search(query, limit, function(res, err)
+			current_job = nil
+			if not vim.api.nvim_buf_is_valid(buf) then
+				return
+			end
+			is_searching = false
+			if err then
+				vim.bo[buf].modifiable = true
+				vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ❌ Error: " .. err })
+				return
+			end
 
-            results = res
-            render_results()
-            vim.api.nvim_win_set_cursor(win, { 3, 0 })
-        end)
-    end
+			if #res == 0 then
+				vim.bo[buf].modifiable = true
+				vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ❌ No results found." })
+				return
+			end
 
-    local opts = { buffer = buf, silent = true }
+			results = res
+			render_results()
+			vim.api.nvim_win_set_cursor(win, { 3, 0 })
+		end)
+	end
 
-    local function get_current_result()
-        local r = vim.api.nvim_win_get_cursor(win)[1]
-        if r < 3 or #results == 0 then return nil end
-        local idx = math.floor((r - 3) / 3) + 1
-        return results[idx]
-    end
+	local opts = { buffer = buf, silent = true }
 
-    local function play_result()
-        if vim.fn.mode() == "i" then vim.cmd("stopinsert") end
-        local res = get_current_result()
-        if res and res.url ~= "" then
-            require("yt-player").load(res.url)
-            vim.notify("YT Control: Playing -> " .. res.title, vim.log.levels.INFO)
-        end
-    end
+	local function get_current_result()
+		local r = vim.api.nvim_win_get_cursor(win)[1]
+		if r < 3 or #results == 0 then
+			return nil
+		end
+		local idx = math.floor((r - 3) / 3) + 1
+		return results[idx]
+	end
 
-    local function append_result()
-        if vim.fn.mode() == "i" then vim.cmd("stopinsert") end
-        local res = get_current_result()
-        if res and res.url ~= "" then
-            -- Store title metadata so player UI can display it before playback starts
-            local state_mod = require("yt-player.state")
-            state_mod.current.playlist_meta = state_mod.current.playlist_meta or {}
-            state_mod.current.playlist_meta[res.url] = res.title
+	local function play_result()
+		if vim.fn.mode() == "i" then
+			vim.cmd("stopinsert")
+		end
+		local res = get_current_result()
+		if res and res.url ~= "" then
+			require("yt-player").load(res.url)
+			vim.notify("YT Control: Playing -> " .. res.title, vim.log.levels.INFO)
+		end
+	end
 
-            -- Optional: don't close window instantly on append, let them queue multiple
-            local mpv = require("yt-player.mpv")
-            if not mpv.is_running() then
-                require("yt-player").load(res.url)
-            else
-                mpv.send_command({ "loadfile", res.url, "append-play" })
-                vim.notify("YT Control: Queued -> " .. res.title, vim.log.levels.INFO)
-            end
-        end
-    end
+	local function append_result()
+		if vim.fn.mode() == "i" then
+			vim.cmd("stopinsert")
+		end
+		local res = get_current_result()
+		if res and res.url ~= "" then
+			-- Store title metadata so player UI can display it before playback starts
+			local state_mod = require("yt-player.state")
+			state_mod.current.playlist_meta = state_mod.current.playlist_meta or {}
+			state_mod.current.playlist_meta[res.url] = res.title
 
-    vim.keymap.set({ "i", "n" }, "<CR>", function()
-        local r = vim.api.nvim_win_get_cursor(win)[1]
-        if r == 1 then
-            if not is_searching then do_search() end
-        else
-            play_result()
-        end
-    end, opts)
+			-- Optional: don't close window instantly on append, let them queue multiple
+			local mpv = require("yt-player.mpv")
+			if not mpv.is_running() then
+				require("yt-player").load(res.url)
+			else
+				mpv.send_command({ "loadfile", res.url, "append-play" })
+				vim.notify("YT Control: Queued -> " .. res.title, vim.log.levels.INFO)
+			end
+		end
+	end
 
-    -- <S-CR> is often dropped by terminal emulators, so we provide <C-a>
-    vim.keymap.set({ "i", "n" }, "<C-a>", function()
-        local r = vim.api.nvim_win_get_cursor(win)[1]
-        if r > 1 then append_result() end
-    end, opts)
+	vim.keymap.set({ "i", "n" }, "<CR>", function()
+		local r = vim.api.nvim_win_get_cursor(win)[1]
+		if r == 1 then
+			if not is_searching then
+				do_search()
+			end
+		else
+			play_result()
+		end
+	end, opts)
 
-    vim.keymap.set("n", "A", append_result, opts)
-    vim.keymap.set("n", "a", append_result, opts)
+	-- <S-CR> is often dropped by terminal emulators, so we provide <C-a>
+	vim.keymap.set({ "i", "n" }, "<C-a>", function()
+		local r = vim.api.nvim_win_get_cursor(win)[1]
+		if r > 1 then
+			append_result()
+		end
+	end, opts)
 
-    local function jump(dir)
-        if vim.fn.mode() == "i" then vim.cmd("stopinsert") end
-        if #results == 0 then return end
-        local r = vim.api.nvim_win_get_cursor(win)[1]
-        if r < 3 then
-            vim.api.nvim_win_set_cursor(win, { 3, 0 }); return
-        end
+	vim.keymap.set("n", "A", append_result, opts)
+	vim.keymap.set("n", "a", append_result, opts)
 
-        local current_idx = math.floor((r - 3) / 3)
-        local target_idx = math.max(0, math.min(#results - 1, current_idx + dir))
-        vim.api.nvim_win_set_cursor(win, { 3 + (target_idx * 3), 0 })
-    end
+	local function jump(dir)
+		if vim.fn.mode() == "i" then
+			vim.cmd("stopinsert")
+		end
+		if #results == 0 then
+			return
+		end
+		local r = vim.api.nvim_win_get_cursor(win)[1]
+		if r < 3 then
+			vim.api.nvim_win_set_cursor(win, { 3, 0 })
+			return
+		end
 
-    vim.keymap.set("n", "j", function() jump(1) end, opts)
-    vim.keymap.set("n", "k", function() jump(-1) end, opts)
-    vim.keymap.set("n", "<Tab>", function() jump(1) end, opts)
-    vim.keymap.set("n", "<S-Tab>", function() jump(-1) end, opts)
-    vim.keymap.set("i", "<Tab>", function() jump(1) end, opts)
+		local current_idx = math.floor((r - 3) / 3)
+		local target_idx = math.max(0, math.min(#results - 1, current_idx + dir))
+		vim.api.nvim_win_set_cursor(win, { 3 + (target_idx * 3), 0 })
+	end
 
-    vim.keymap.set("n", "q", function() vim.api.nvim_win_close(win, true) end, opts)
+	vim.keymap.set("n", "j", function()
+		jump(1)
+	end, opts)
+	vim.keymap.set("n", "k", function()
+		jump(-1)
+	end, opts)
+	vim.keymap.set("n", "<Tab>", function()
+		jump(1)
+	end, opts)
+	vim.keymap.set("n", "<S-Tab>", function()
+		jump(-1)
+	end, opts)
+	vim.keymap.set("i", "<Tab>", function()
+		jump(1)
+	end, opts)
 
-    vim.keymap.set("n", "/", function()
-        vim.bo[buf].modifiable = true
-        vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
-        vim.cmd("startinsert!")
-    end, opts)
+	vim.keymap.set("n", "q", function()
+		vim.api.nvim_win_close(win, true)
+	end, opts)
 
-    vim.keymap.set("n", "<Esc>", function()
-        if vim.api.nvim_win_get_cursor(win)[1] == 1 then
-            vim.api.nvim_win_close(win, true)
-        else
-            vim.bo[buf].modifiable = true
-            vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
-            vim.cmd("startinsert!")
-        end
-    end, opts)
+	vim.keymap.set("n", "/", function()
+		vim.bo[buf].modifiable = true
+		vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
+		vim.cmd("startinsert!")
+	end, opts)
 
-    if initial_query and initial_query ~= "" then
-        do_search()
-    else
-        vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
-        vim.cmd("startinsert!")
-    end
+	vim.keymap.set("n", "<Esc>", function()
+		if vim.api.nvim_win_get_cursor(win)[1] == 1 then
+			vim.api.nvim_win_close(win, true)
+		else
+			vim.bo[buf].modifiable = true
+			vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
+			vim.cmd("startinsert!")
+		end
+	end, opts)
 
-    -- Cleanup job on window close to avoid orphaned processes wasting CPU/Network
-    vim.api.nvim_create_autocmd("BufWipeout", {
-        buffer = buf,
-        once = true,
-        callback = function()
-            if current_job and not current_job:is_closing() then
-                pcall(function() current_job:kill(15) end)
-            end
-        end,
-    })
+	if initial_query and initial_query ~= "" then
+		do_search()
+	else
+		vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
+		vim.cmd("startinsert!")
+	end
+
+	-- Cleanup job on window close to avoid orphaned processes wasting CPU/Network
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		buffer = buf,
+		once = true,
+		callback = function()
+			if current_job and not current_job:is_closing() then
+				pcall(function()
+					current_job:kill(15)
+				end)
+			end
+		end,
+	})
+
+	-- Keymap to return to search box when pressing "i"
+	vim.keymap.set("n", "i", function()
+		vim.bo[buf].modifiable = true
+		local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
+		vim.api.nvim_win_set_cursor(win, { 1, #line })
+		vim.cmd("startinsert!")
+	end, opts)
 end
 
 return M
