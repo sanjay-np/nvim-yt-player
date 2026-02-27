@@ -299,7 +299,7 @@ function M.interactive_picker(initial_query)
 		vim.api.nvim_buf_set_lines(buf, 2, -1, false, display)
 	end
 
-	local function do_search()
+	local function do_search(is_explicit)
 		local line = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1]
 		local query = line:gsub("^%s*🔍 Query:%s*", "")
 		query = vim.trim(query)
@@ -311,7 +311,11 @@ function M.interactive_picker(initial_query)
 		results = {}
 		vim.bo[buf].modifiable = true
 		vim.api.nvim_buf_set_lines(buf, 2, -1, false, { "    ⏳ Searching for '" .. query .. "'..." })
-		vim.cmd("stopinsert")
+
+		-- Only stop insert mode if the user explicitly pressed Enter
+		if is_explicit then
+			vim.cmd("stopinsert")
+		end
 
 		local limit = require("yt-player").config.search.limit or 10
 
@@ -341,7 +345,11 @@ function M.interactive_picker(initial_query)
 
 			results = res
 			render_results()
-			vim.api.nvim_win_set_cursor(win, { 3, 0 })
+
+			-- Only jump to the results list if the user explicitly pressed Enter
+			if is_explicit then
+				vim.api.nvim_win_set_cursor(win, { 3, 0 })
+			end
 		end)
 	end
 
@@ -393,7 +401,7 @@ function M.interactive_picker(initial_query)
 		local r = vim.api.nvim_win_get_cursor(win)[1]
 		if r == 1 then
 			if not is_searching then
-				do_search()
+				do_search(true)
 			end
 		else
 			play_result()
@@ -418,7 +426,7 @@ function M.interactive_picker(initial_query)
 			0,
 			vim.schedule_wrap(function()
 				if vim.api.nvim_buf_is_valid(buf) then
-					do_search()
+					do_search(false)
 				end
 			end)
 		)
@@ -495,7 +503,7 @@ function M.interactive_picker(initial_query)
 	end, opts)
 
 	if initial_query and initial_query ~= "" then
-		do_search()
+		do_search(false)
 	else
 		vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
 		vim.cmd("startinsert!")
