@@ -401,14 +401,27 @@ function M.interactive_picker(initial_query)
 	end, opts)
 
 	-- Live search while typing with the debounce of 400ms
-	local timer
+	local timer = nil
 	local function debounce_search()
+		local r = vim.api.nvim_win_get_cursor(win)[1]
+		if r ~= 1 then
+			return
+		end
 		if timer then
 			timer:stop()
+			timer:close()
 		end
-		timer = vim.defer_fn(do_search, 400)
+		timer = vim.defer_fn(function()
+			if vim.api.nvim_buf_is_valid(buf) then
+				do_search()
+			end
+		end, 400)
 	end
-	vim.keymap.set("i", "<CharPre>", debounce_search, { buffer = buf })
+
+	vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, {
+		buffer = buf,
+		callback = debounce_search,
+	})
 
 	-- <S-CR> is often dropped by terminal emulators, so we provide <C-a>
 	vim.keymap.set({ "i", "n" }, "<C-a>", function()
