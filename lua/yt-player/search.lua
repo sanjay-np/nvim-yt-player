@@ -401,21 +401,27 @@ function M.interactive_picker(initial_query)
 	end, opts)
 
 	-- Live search while typing with the debounce of 400ms
-	local timer = nil
+	local uv = vim.uv or vim.loop
+	local timer = uv.new_timer()
 	local function debounce_search()
 		local r = vim.api.nvim_win_get_cursor(win)[1]
 		if r ~= 1 then
 			return
 		end
-		if timer then
-			timer:stop()
-			timer:close()
-		end
-		timer = vim.defer_fn(function()
-			if vim.api.nvim_buf_is_valid(buf) then
-				do_search()
-			end
-		end, 400)
+
+		-- Stop the timer if it's already running
+		timer:stop()
+
+		-- Start/Restart the timer (delay, repeat)
+		timer:start(
+			400,
+			0,
+			vim.schedule_wrap(function()
+				if vim.api.nvim_buf_is_valid(buf) then
+					do_search()
+				end
+			end)
+		)
 	end
 
 	vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, {

@@ -17,10 +17,10 @@ Play YouTube audio directly from Neovim using **mpv** + **yt-dlp**. No browser, 
 
 ## 📦 Requirements
 
-| Dependency | Install |
-|------------|---------|
-| [Neovim](https://neovim.io/) 0.9+ | — |
-| [mpv](https://mpv.io/) | `sudo apt install mpv` or `brew install mpv` |
+| Dependency                                 | Install                                                                             |
+| ------------------------------------------ | ----------------------------------------------------------------------------------- |
+| [Neovim](https://neovim.io/) 0.10+         | —                                                                                   |
+| [mpv](https://mpv.io/)                     | `sudo apt install mpv` or `brew install mpv`                                        |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | `pip install yt-dlp` or [binary release](https://github.com/yt-dlp/yt-dlp/releases) |
 
 ## 🔧 Installation
@@ -60,6 +60,7 @@ Or search directly from Neovim (opens in a custom interactive floating window!):
 ```
 
 In the interactive search window:
+
 - `<CR>` (Enter): Play result (replaces current track)
 - `<C-a>` (Ctrl+A) or `a` / `A` (in Normal mode): Append result to the queue
 
@@ -67,42 +68,42 @@ In the interactive search window:
 
 All functionality is grouped under a single `:YT` command with auto-completion (press `Tab`!).
 
-| Command | Description |
-|---------|-------------|
-| `:YT play [url]` | Play URL / search, or resume |
-| `:YT search [query]` | 🔍 Search YouTube and pick a result |
-| `:YT queue <url>` | Append a single URL to the playlist |
-| `:YT queue_playlist <url>` | Fetch and append an entire playlist |
-| `:YT queue_edit` | Open interactive queue editor |
-| `:YT pause` | Pause |
-| `:YT toggle` | Toggle play/pause |
-| `:YT stop` | Stop playback |
-| `:YT next` / `:YT prev` | Next / previous track |
-| `:YT seek <sec>` | Seek to absolute position |
-| `:YT seek_rel <±sec>` | Seek relative |
-| `:YT volume <0-100>` | Set volume |
-| `:YT vol_up` / `:YT vol_down` | Volume ±5 |
-| `:YT mute` | Toggle mute |
-| `:YT speed <rate>` | Set speed (0.25–3.0) |
-| `:YT speed_up` / `:YT speed_down` | Speed ±0.25 |
-| `:YT shuffle` / `:YT repeat_toggle`| Shuffle / repeat |
-| `:YT ui` | Toggle the dedicated player side-panel |
-| `:YT info` | Toggle the floating player window |
+| Command                             | Description                            |
+| ----------------------------------- | -------------------------------------- |
+| `:YT play [url]`                    | Play URL / search, or resume           |
+| `:YT search [query]`                | 🔍 Search YouTube and pick a result    |
+| `:YT queue <url>`                   | Append a single URL to the playlist    |
+| `:YT queue_playlist <url>`          | Fetch and append an entire playlist    |
+| `:YT queue_edit`                    | Open interactive queue editor          |
+| `:YT pause`                         | Pause                                  |
+| `:YT toggle`                        | Toggle play/pause                      |
+| `:YT stop`                          | Stop playback                          |
+| `:YT next` / `:YT prev`             | Next / previous track                  |
+| `:YT seek <sec>`                    | Seek to absolute position              |
+| `:YT seek_rel <±sec>`               | Seek relative                          |
+| `:YT volume <0-100>`                | Set volume                             |
+| `:YT vol_up` / `:YT vol_down`       | Volume ±5                              |
+| `:YT mute`                          | Toggle mute                            |
+| `:YT speed <rate>`                  | Set speed (0.25–3.0)                   |
+| `:YT speed_up` / `:YT speed_down`   | Speed ±0.25                            |
+| `:YT shuffle` / `:YT repeat_toggle` | Shuffle / repeat                       |
+| `:YT ui`                            | Toggle the dedicated player side-panel |
+| `:YT info`                          | Toggle the floating player window      |
 
 ## 🎛️ Floating Player
 
 `:YTInfo` opens an interactive floating window:
 
-| Key | Action |
-|-----|--------|
+| Key             | Action                |
+| --------------- | --------------------- |
 | `p` / `s` / `t` | Play / Pause / Toggle |
-| `n` / `b` | Next / Previous |
-| `m` | Mute |
-| `>` / `<` | Speed ±0.25 |
-| `+` / `-` | Volume ±5 |
-| `l` / `h` | Seek ±5s |
-| `L` / `H` | Seek ±30s |
-| `q` / `<Esc>` | Close |
+| `n` / `b`       | Next / Previous       |
+| `m`             | Mute                  |
+| `>` / `<`       | Speed ±0.25           |
+| `+` / `-`       | Volume ±5             |
+| `l` / `h`       | Seek ±5s              |
+| `L` / `H`       | Seek ±30s             |
+| `q` / `<Esc>`   | Close                 |
 
 ## ⚙️ Configuration
 
@@ -138,7 +139,7 @@ require("yt-player").setup({
     enabled = false,
     prefix = "<leader>y",
   },
-  
+
   sponsorblock = false, -- Set to true to automatically skip embedded sponsor segments
 })
 ```
