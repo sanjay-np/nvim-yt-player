@@ -525,9 +525,10 @@ function M.shutdown()
     end
     M._cleanup_ipc()
 
-    -- Synchronously kill mpv as a guaranteed fallback.
-    -- os.execute is synchronous and works reliably during VimLeave.
-    os.execute("pkill -f " .. vim.fn.shellescape(M.ipc_socket_path) .. " 2>/dev/null")
+    -- Safer fallback: use socket filename in pattern to reduce false matches
+    -- (prefer jobstop via recorded job id when possible)
+    local socket_name = vim.fn.fnamemodify(M.ipc_socket_path, ":t")
+    os.execute("pkill -f 'mpv.*" .. vim.fn.shellescape(socket_name) .. "' 2>/dev/null")
 
     -- Clean up socket file
     pcall(function() os.remove(M.ipc_socket_path) end)

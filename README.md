@@ -171,7 +171,7 @@ The plugin spawns a headless `mpv --no-video` process and communicates through a
 
 - **No audio**: Run `mpv --no-video <youtube-url>` directly to verify mpv + yt-dlp work
 - **yt-dlp outdated**: Run `yt-dlp -U` to update
-- **Port conflict**: The IPC socket path is `/tmp/nvim-yt-player-ipc-<pid>`, unique per Neovim instance
+- **Port conflict**: The IPC socket path is `/tmp/nvim-yt-player-ipc.sock`
 
 ## 📄 License
 
