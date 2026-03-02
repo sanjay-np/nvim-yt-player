@@ -208,10 +208,16 @@ local function build_lines(state, is_float)
 
     -- Compact help (2 lines instead of 6)
     if not use_minimal then
-        table.insert(lines, " ╭─ Controls ───────────────────────╮")
-        table.insert(lines, " │ [p/s/t]Play [b/n]Prev/Nxt [m]Mute │")
-        table.insert(lines, " │ [h/l]±5s [H/L]±30s [+/-]Vol      │")
-        table.insert(lines, " │ [</>]Speed [r]Radio [q]Close     │")
+        local help_header = " ╭─ Controls ─"
+        help_header = help_header .. string.rep("─", width - vim.fn.strdisplaywidth(help_header) - 1) .. "╮"
+        table.insert(lines, help_header)
+        
+        -- Adjust padding based on width
+        local content_width = width - 4
+        table.insert(lines, " │" .. pad_right(" [p/s/t]Play [b/n]Prev/Nxt [m]Mute", content_width) .. "│")
+        table.insert(lines, " │" .. pad_right(" [h/l]±5s [H/L]±30s [+/-]Vol", content_width) .. "│")
+        table.insert(lines, " │" .. pad_right(" [</>]Speed [r]Radio [q]Close", content_width) .. "│")
+        
         table.insert(lines, " ╰" .. string.rep("─", width - 2) .. "╯")
     end
 
