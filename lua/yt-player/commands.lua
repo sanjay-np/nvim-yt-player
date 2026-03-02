@@ -121,10 +121,6 @@ function M._register()
       impl = function() require("yt-player.player").toggle_float() end,
       desc = "Toggle floating player window",
     },
-    ui = {
-      impl = function() require("yt-player.player").toggle_panel() end,
-      desc = "Toggle player side-panel",
-    },
     player = {
       impl = function() require("yt-player.player").toggle_panel() end,
       desc = "Toggle player side-panel",
@@ -143,6 +139,12 @@ function M._register()
           return
         end
         local mpv = require("yt-player.mpv")
+        local utils = require("yt-player.utils")
+        args = utils.sanitize_url(args)
+        if args == "" then
+          vim.notify("YT Control: Invalid URL", vim.log.levels.ERROR)
+          return
+        end
         if not mpv.is_running() then
           yt().load(args)
         else

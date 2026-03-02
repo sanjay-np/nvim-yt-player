@@ -6,7 +6,7 @@ Play YouTube audio directly from Neovim using **mpv** + **yt-dlp**. No browser, 
 
 - **▶️ Seamless Playback**: Play any YouTube URL or search query instantly via a simple Neovim command.
 - **🏗️ Zero-Dependency Backend**: Runs entirely on pure Lua via a local UNIX socket. No browser extension, no Node.js requirement, no external bloated servers. Just `mpv` and `yt-dlp`.
-- **🎨 Premium ASCII Visualizer UI**: Implements a dedicated (`:YT ui`) animated player layout featuring a custom bounding-box grid, bouncy audio visualizer, interactive progress slidebar, and built-in queue alignment.
+- **🎨 Premium ASCII Visualizer UI**: Implements a dedicated (`:YT player`) animated player layout featuring a custom bounding-box grid, bouncy audio visualizer, interactive progress slidebar, and built-in queue alignment.
 - **🔍 Interactive Search Picker**: Search YouTube directly inside Neovim and preview video durations/channels in a native floating window buffer.
 - **📝 Interactive Queue Editor**: View and modify your active queue in real-time. Use `dd` to remove tracks or `J`/`K` to reorder them (`:YT queue_edit`).
 - **🎵 Endless Queuing & Playlists**: Instantly append streams or search results to your queue. You can even pass a full YouTube Playlist URL to rapidly ingest 100+ tracks (`:YT queue_playlist`).
@@ -86,12 +86,15 @@ All functionality is grouped under a single `:YT` command with auto-completion (
 | `:YT speed <rate>` | Set speed (0.25–3.0) |
 | `:YT speed_up` / `:YT speed_down` | Speed ±0.25 |
 | `:YT shuffle` / `:YT repeat_toggle`| Shuffle / repeat |
-| `:YT ui` | Toggle the dedicated player side-panel |
+| `:YT player` | Toggle the player side-panel |
 | `:YT info` | Toggle the floating player window |
+| `:YT history` | Browse play history |
+| `:YT history_clear` | Clear play history |
+| `:YT radio` | Toggle radio/autoplay mode |
 
-## 🎛️ Floating Player
+## 🎛️ Player Windows
 
-`:YTInfo` opens an interactive floating window:
+`:YT player` (side-panel) and `:YT info` (floating window) share the same controls:
 
 | Key | Action |
 |-----|--------|
@@ -102,6 +105,7 @@ All functionality is grouped under a single `:YT` command with auto-completion (
 | `+` / `-` | Volume ±5 |
 | `l` / `h` | Seek ±5s |
 | `L` / `H` | Seek ±30s |
+| `r` | Toggle Radio mode |
 | `q` / `<Esc>` | Close |
 
 ## ⚙️ Configuration
@@ -127,16 +131,28 @@ require("yt-player").setup({
   notifications = {
     enabled = true,
     notify_on_track_change = true,
-    notify_on_command = false,
   },
 
   player = {
-    queue_display_limit = 5, -- Number of upcoming tracks to show in the `:YT ui` side-panel
+    queue_display_limit = 5, -- Number of upcoming tracks to show in the `:YT player` side-panel
   },
 
   keymaps = {
     enabled = false,
     prefix = "<leader>y",
+    play = "p",
+    pause = "s",
+    toggle = "t",
+    next = "n",
+    prev = "b",
+    mute = "m",
+    volume_up = "+",
+    volume_down = "-",
+    seek_forward = "f",
+    seek_backward = "r",
+    speed_up = ">",
+    speed_down = "<",
+    info = "i",
   },
   
   sponsorblock = false, -- Set to true to automatically skip embedded sponsor segments
@@ -171,7 +187,7 @@ The plugin spawns a headless `mpv --no-video` process and communicates through a
 
 - **No audio**: Run `mpv --no-video <youtube-url>` directly to verify mpv + yt-dlp work
 - **yt-dlp outdated**: Run `yt-dlp -U` to update
-- **Port conflict**: The IPC socket path is `/tmp/nvim-yt-player-ipc.sock`
+- **Socket issues**: The IPC socket is stored in Neovim's cache directory
 
 ## 📄 License
 
