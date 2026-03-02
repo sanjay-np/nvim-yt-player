@@ -7,6 +7,26 @@ M.float = { win_id = nil, buf_id = nil, update_timer = nil }
 -- Mode state: nil = normal, true = minimal
 M.minimal_mode = nil
 
+-- Highlights setup flag
+M.highlights_setup = false
+
+-- Module configuration (can be overridden via M.setup())
+M.config = {
+    show_visualizer = true,
+    show_help = true,
+    show_queue = true,
+    queue_limit = 5,
+    animate = true,
+    colors = true,
+}
+
+-- Setup function to override config
+function M.setup(user_config)
+    if user_config then
+        M.config = vim.tbl_deep_extend("force", M.config, user_config)
+    end
+end
+
 local utils = require("yt-player.utils")
 local state_mod = require("yt-player.state")
 
@@ -27,11 +47,6 @@ local function progress_bar(position, duration, width)
     local pct = math.min((position or 0) / duration, 1)
     local filled = math.floor(pct * width)
     
-    -- Gradient characters for smoother look
-    local gradient = {"▏","▎","▍","▌","▋","▊","▉","█"}
-    local grad_idx = math.min(math.floor(pct * #gradient) + 1, #gradient)
-    local fill_char = gradient[grad_idx]
-
     if filled == 0 then
         return "○" .. string.rep("─", width - 1)
     elseif filled >= width then
@@ -99,6 +114,58 @@ local function pad_right(str, width)
     return str .. string.rep(" ", width - len)
 end
 
+-- Proper border width calculation
+local function make_header(title, width)
+    local content = "─ " .. title .. " ─"
+    local remaining = width - vim.fn.strdisplaywidth(content) - 2
+    if remaining > 0 then
+        content = content .. string.rep("─", remaining)
+    end
+    return "╭" .. content .. "╮"
+end
+
+local function make_footer(width)
+    return "╰" .. string.rep("─", width - 2) .. "╯"
+end
+
+local function make_section_header(title, width)
+    local content = "─ " .. title
+    local remaining = width - vim.fn.strdisplaywidth(content) - 2
+    if remaining > 0 then
+        content = content .. string.rep("─", remaining)
+    end
+    return "╭" .. content .. "╮"
+end
+
+-- Setup highlight groups (Dracula-inspired colors for dark theme)
+local function setup_highlights()
+    -- Only setup once
+    if M.highlights_setup then return end
+    
+    -- Check if terminal supports true color
+    if not vim.opt.termguicolors then return end
+    
+    local highlights = {
+        YtPlayerTitle = { fg = "#bd93f9", bold = true },      -- Purple
+        YtPlayerArtist = { fg = "#6272a4" },                  -- Grayish blue
+        YtPlayerProgress = { fg = "#50fa7b" },                -- Green
+        YtPlayerProgressBg = { fg = "#44475a" },              -- Dark gray
+        YtPlayerControls = { fg = "#8be9fd" },                -- Cyan
+        YtPlayerVolume = { fg = "#ffb86c" },                  -- Orange
+        YtPlayerRadio = { fg = "#ff79c6" },                   -- Pink
+        YtPlayerQueue = { fg = "#f8f8f2" },                   -- White
+        YtPlayerQueueCurrent = { fg = "#50fa7b", bold = true }, -- Green bold
+        YtPlayerBorder = { fg = "#6272a4" },                  -- Gray border
+        YtPlayerHelp = { fg = "#6272a4" },                    -- Gray help
+    }
+    
+    for name, opts in pairs(highlights) do
+        vim.api.nvim_set_hl(0, name, opts)
+    end
+    
+    M.highlights_setup = true
+end
+
 -- Get actual window width for dynamic sizing
 local function get_win_width(win_id)
     if win_id and vim.api.nvim_win_is_valid(win_id) then
@@ -132,6 +199,7 @@ local function build_lines(state, is_float)
     local is_playing = state.playing
     local width = get_target_width(is_float)
     local use_minimal = M.minimal_mode
+    local content_width = width - 4
 
     -- Animate visualizer if playing
     if is_playing then
@@ -153,46 +221,91 @@ local function build_lines(state, is_float)
         or "0%"
 
     local lines = {}
+    local highlights = {} -- Store highlights for each line
     
-    -- Helper to add bordered row
-    local function add_row(content)
-        table.insert(lines, string.format(" │ %s │", pad_right(content, width - 4)))
+    -- Helper to add bordered row with optional highlight
+    local function add_row(content, highlight)
+        table.insert(lines, string.format("│ %s │", pad_right(content, content_width)))
+        if highlight and M.config.colors then
+            table.insert(highlights, { line = #lines - 1, hl = highlight })
+        end
     end
-    local function add_center(content)
-        table.insert(lines, string.format(" │ %s │", center_text(content, width - 4)))
+    local function add_center(content, highlight)
+        table.insert(lines, string.format("│ %s │", center_text(content, content_width)))
+        if highlight and M.config.colors then
+            table.insert(highlights, { line = #lines - 1, hl = highlight })
+        end
     end
 
     -- ╭─ Header ───────────────────────╮
-    local header = string.format(" ╭─ %s ", title)
-    header = header .. string.rep("─", width - vim.fn.strdisplaywidth(header) - 1) .. "╮"
-    table.insert(lines, header)
-    
-    -- Visualizer + Track info row
+    -- LAYER 1: Track title + artist - PROMINENT
     if use_minimal then
         -- Minimal: title + mini progress on one line
         local mini_prog = mini_progress_bar(state.position, state.duration, width - 25)
+        table.insert(lines, make_header("Now Playing", width))
         add_row(string.format("♫ %s %s %s", safe_truncate(title, width - 30), mini_prog, pct))
     else
-        -- Normal: full visualizer + track info
-        add_center("▃▅▆  " .. vis .. "  ▆▅▃")
-        add_row("♪ " .. safe_truncate(title, width - 8))
-        add_row("• " .. safe_truncate(artist, width - 6))
+        -- Normal: Full visual hierarchy
+        table.insert(lines, make_header("Now Playing", width))
         
-        -- Progress line
+        -- Album Art Placeholder (left side) + Track Info (right side)
+        -- All lines must be exactly 7 chars for proper alignment
+        local album_art = {
+            "[~~~~~]",
+            "[Album]",
+            "[ Art ]",
+            "-------",
+        }
+        
+        -- Calculate split: album art + track info
+        local art_width = 7
+        local info_width = content_width - art_width - 1
+        
+        -- Add album art + track info row
+        for i, art_line in ipairs(album_art) do
+            local info_line = ""
+            if i == 1 then
+                info_line = safe_truncate(title, info_width)
+            elseif i == 2 then
+                info_line = safe_truncate(artist, info_width)
+            elseif i == 3 then
+                -- Duration info
+                info_line = string.format("⏱ %s / %s", pos_str, dur_str)
+            elseif i == 4 then
+                -- View count / playlist info if available
+                if state.view_count then
+                    info_line = string.format("👁 %s views", state.view_count)
+                elseif state.playlist_name then
+                    info_line = "📋 " .. safe_truncate(state.playlist_name, info_width - 2)
+                else
+                    info_line = ""
+                end
+            else
+                info_line = ""
+            end
+            table.insert(lines, string.format("│ %s %s │", art_line, pad_right(info_line, info_width)))
+        end
+        
+        -- Visualizer
+        if M.config.show_visualizer then
+            add_center("▃▅▆  " .. vis .. "  ▆▅▃")
+        end
+
+        -- Layer 2: Playback status + progress
         local prog_bar = progress_bar(state.position, state.duration, width - 22)
         local prog_line = string.format("%s %s %s", pos_str, prog_bar, dur_str)
         add_row(prog_line)
-        
-        -- Controls
-        local ctrl_icon = is_playing and "⏸" or "▶"
-        local ctrl = string.format("[b]◀ [%s] ▶[n]    [p/s] %s  [m]Mute", ctrl_icon, ctrl_icon)
-        add_center(ctrl)
-        
-        -- Volume & Speed
+
+        -- Layer 3: Volume + Speed (secondary info)
         local vol_icon = (state.muted or vol == 0) and "🔇" or (vol > 50 and "🔊" or "🔉")
-        local vol_line = string.format("%s %d%% %s  ⏩ %s", vol_icon, vol, volume_bar(vol, 6), speed_str)
+        local vol_line = string.format("%s %d%%  ⏩ %s", vol_icon, vol, speed_str)
         add_row(vol_line)
-        
+
+        -- Controls: compact icons
+        local ctrl_icon = is_playing and "⏸" or "▶"
+        local ctrl = string.format("⏮ │ %s │ ⏭    %s │ 🔀", ctrl_icon, vol_icon)
+        add_center(ctrl)
+
         -- Radio mode indicator
         local radio_on = pcall(function()
             return require("yt-player.radio").enabled
@@ -202,53 +315,53 @@ local function build_lines(state, is_float)
         end
     end
 
-    -- ╰─ Footer ───────────────────────╯
-    local footer = " ╰" .. string.rep("─", width - 2) .. "╯"
-    table.insert(lines, footer)
+    -- Footer
+    table.insert(lines, make_footer(width))
 
-    -- Compact help (2 lines instead of 6)
-    if not use_minimal then
-        local help_header = " ╭─ Controls ─"
-        help_header = help_header .. string.rep("─", width - vim.fn.strdisplaywidth(help_header) - 1) .. "╮"
-        table.insert(lines, help_header)
-        
-        -- Adjust padding based on width
-        local content_width = width - 4
-        table.insert(lines, " │" .. pad_right(" [p/s/t]Play [b/n]Prev/Nxt [m]Mute", content_width) .. "│")
-        table.insert(lines, " │" .. pad_right(" [h/l]±5s [H/L]±30s [+/-]Vol", content_width) .. "│")
-        table.insert(lines, " │" .. pad_right(" [</>]Speed [r]Radio [q]Close", content_width) .. "│")
-        
-        table.insert(lines, " ╰" .. string.rep("─", width - 2) .. "╯")
+    -- Layer 4: Help section - reduced to 1 line (conditional)
+    if not use_minimal and M.config.show_help then
+        table.insert(lines, make_section_header("Controls", width))
+        add_row("[p/s/t]Play [b/n]Nav [m]Vol [</>]Speed [0-9]Seek [r]Radio [q]Exit")
+        table.insert(lines, make_footer(width))
     end
 
-    -- Compact Queue
-    if state.playlist and #state.playlist > 0 then
+    -- Compact Queue with duration (conditional)
+    if M.config.show_queue and state.playlist and #state.playlist > 0 then
         local count_txt = string.format("%d/%d", (state.playlist_pos or 0) + 1, #state.playlist)
         
-        -- Queue header - more compact
-        local qheader = string.format(" ╭─ Queue (%s)", count_txt)
-        qheader = qheader .. string.rep("─", width - vim.fn.strdisplaywidth(qheader) - 1) .. "╮"
-        table.insert(lines, qheader)
+        table.insert(lines, make_section_header("Queue (" .. count_txt .. ")", width))
 
-        local limit = use_minimal and 3 or (require("yt-player").config.player.queue_display_limit or 4)
+        local limit = use_minimal and 3 or M.config.queue_limit
         local start_idx = math.max(1, (state.playlist_pos or 0))
         local end_idx = math.min(#state.playlist, start_idx + limit - 1)
 
         for i = start_idx, end_idx do
             local item = state.playlist[i]
-            local prefix = (i - 1 == state.playlist_pos) and "▸" or " "
+            local is_current = (i - 1 == state.playlist_pos)
+            local prefix = is_current and "▸" or "│"
             local item_title = item.title or (state.playlist_meta and state.playlist_meta[item.filename]) or
                 item.filename or "Unknown"
             
-            -- Compact queue item: "▸ 1. Title..." or "  2. Title..."
-            local qitem = string.format("%s %d. %s", prefix, i, safe_truncate(item_title, width - 10))
+            -- Get duration if available
+            local dur = item.duration or (item.length_sec)
+            local dur_str = dur and utils.format_time(dur) or ""
+            
+            -- Format: "▸ 1. Track Title        3:45" or "│ 2. Track Title        3:45"
+            local qitem = string.format("%s %d. %s%s", prefix, i, 
+                pad_right(safe_truncate(item_title, width - 16), width - 16),
+                dur_str)
             add_row(qitem)
+            
+            -- Visual separator after current track
+            if is_current and i < end_idx then
+                add_row(pad_right("├" .. string.rep("─", content_width - 1), content_width))
+            end
         end
 
         if end_idx < #state.playlist then
-            add_row(string.format("  +%d more", #state.playlist - end_idx))
+            add_row(string.format("│ +%d more", #state.playlist - end_idx))
         end
-        table.insert(lines, " ╰" .. string.rep("─", width - 2) .. "╯")
+        table.insert(lines, make_footer(width))
     end
 
     return lines
@@ -323,6 +436,20 @@ local function setup_keymaps(buf, is_float)
     vim.keymap.set("n", "h", cmd({ "seek", -5, "relative" }), o)
     vim.keymap.set("n", "L", cmd({ "seek", 30, "relative" }), o)
     vim.keymap.set("n", "H", cmd({ "seek", -30, "relative" }), o)
+    
+    -- Keyboard seeking: 0-9 jump to 0%-90%, G goes to end
+    for i = 0, 9 do
+        local pct = i * 10
+        vim.keymap.set("n", tostring(i), function()
+            require("yt-player").command({ "seek", pct, "percent" })
+            vim.defer_fn(refresh, 200)
+        end, o)
+    end
+    vim.keymap.set("n", "G", function()
+        require("yt-player").command({ "seek", 100, "percent" })
+        vim.defer_fn(refresh, 200)
+    end, o)
+    
     vim.keymap.set("n", "r", function()
         require("yt-player.radio").toggle(); refresh()
     end, o)
@@ -336,6 +463,11 @@ end
 ---------- PANEL ----------
 
 function M.open_panel()
+    -- Setup highlights if enabled
+    if M.config.colors then
+        setup_highlights()
+    end
+    
     if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
         refresh_panel()
         vim.api.nvim_set_current_win(M.panel.win_id)
@@ -402,6 +534,11 @@ end
 ---------- FLOAT ----------
 
 function M.open_float()
+    -- Setup highlights if enabled
+    if M.config.colors then
+        setup_highlights()
+    end
+    
     if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
         refresh_float()
         vim.api.nvim_set_current_win(M.float.win_id)
@@ -426,12 +563,8 @@ function M.open_float()
         width = width,
         height = height,
         style = "minimal",
-        border = "rounded",
-        title = " 🎵 YT Control ",
-        title_pos = "center",
     })
 
-    vim.wo[M.float.win_id].winblend = 10
     vim.wo[M.float.win_id].cursorline = false
 
     setup_keymaps(M.float.buf_id, true)

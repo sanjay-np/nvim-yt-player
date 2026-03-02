@@ -188,6 +188,51 @@ The plugin spawns a headless `mpv --no-video` process and communicates through a
 - **No audio**: Run `mpv --no-video <youtube-url>` directly to verify mpv + yt-dlp work
 - **yt-dlp outdated**: Run `yt-dlp -U` to update
 - **Socket issues**: The IPC socket is stored in Neovim's cache directory
+- **"Socket already in use"**: Another mpv process may be running. Kill with `pkill -f "mpv.*yt-player"` or restart Neovim
+- **Search not working**: Ensure `yt-dlp` can access YouTube (check for API rate limits or geo-blocking)
+- **Player window not showing**: Ensure `mpv` was compiled with lua support (most distributions include it)
+
+## ❓ FAQ
+
+**Q: How do I play audio only (no video)?**
+A: The plugin automatically runs `mpv --no-video` by default. Video is disabled to save resources.
+
+**Q: Can I use this with YouTube Music?**
+A: Yes! Any YouTube URL works. For music videos, you'll get the audio track with album art in the player window.
+
+**Q: Does this work with playlists?**
+A: Yes. Use `:YT queue_playlist <playlist-url>` to load an entire playlist, or `:YT queue <url>` for individual tracks.
+
+**Q: How does the radio mode work?**
+A: When enabled (press `r` in player window or `:YT radio`), the plugin will automatically queue and play related videos when the queue ends—creating an endless listening experience.
+
+**Q: Can I use keyboard shortcuts globally?**
+A: Yes! Enable global keymaps in config:
+```lua
+keymaps = {
+  enabled = true,
+  prefix = "<leader>y",
+  -- ... other mappings
+}
+```
+
+## ⌨️ Keyboard Shortcuts Cheatsheet
+
+| Category | Key | Action |
+|----------|-----|--------|
+| **Playback** | `p` | Play |
+| | `s` | Pause |
+| | `t` | Toggle play/pause |
+| **Navigation** | `n` | Next track |
+| | `b` | Previous track |
+| | `l` / `h` | Seek ±5s |
+| | `L` / `H` | Seek ±30s |
+| **Volume** | `m` | Mute toggle |
+| | `+` / `-` | Volume ±5 |
+| **Speed** | `>` | Speed up |
+| | `<` | Speed down |
+| **Mode** | `r` | Toggle radio mode |
+| **Exit** | `q` / `Esc` | Close player |
 
 ## 📄 License
 
