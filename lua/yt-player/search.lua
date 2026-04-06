@@ -48,18 +48,27 @@ function M.setup_highlights()
         YTSearchPrompt = { fg = colors.prompt, bold = true },
         YTSearchInput = { fg = colors.input },
         YTSearchMode = { fg = colors.mode, bold = true },
-        YTSearchIndex = { fg = colors.index, italic = true },
+        YTSearchIndex = { fg = "#7f849c" },
         YTSearchTitle = { fg = colors.title, bold = true },
         YTSearchChannel = { fg = colors.channel },
         YTSearchDuration = { fg = colors.duration },
         YTSearchSelected = { fg = colors.selected_fg, bg = colors.selected_bg, bold = true },
+        YTSearchSelectedTitle = { fg = "#cba6f7", bg = colors.selected_bg, bold = true },
+        YTSearchSelectedMeta = { fg = "#a6adc8", bg = colors.selected_bg },
+        YTSearchSelectedDur = { fg = colors.duration, bg = colors.selected_bg, bold = true },
+        YTSearchAccent = { fg = "#cba6f7", bg = colors.selected_bg, bold = true },
         YTSearchPlaying = { fg = colors.playing, bold = true },
+        YTSearchPlayingTitle = { fg = colors.playing, bold = true },
+        YTSearchPlayingMeta = { fg = colors.playing },
+        YTSearchPlayingBadge = { fg = "#1e1e2e", bg = colors.playing, bold = true },
         YTSearchLoading = { fg = colors.loading, italic = true },
         YTSearchError = { fg = colors.error, bold = true },
         YTSearchEmpty = { fg = colors.empty, italic = true },
         YTSearchFooter = { fg = colors.footer },
         YTSearchHotkey = { fg = colors.hotkey, bold = true },
         YTSearchBorder = { fg = colors.border },
+        YTSearchSeparator = { fg = "#313244" },
+        YTSearchResultCount = { fg = colors.index, italic = true },
     }
 
     for name, opts in pairs(highlights) do
@@ -97,8 +106,8 @@ function M.search(query, count, callback)
         search_url,
     }
 
-    local stdout_chunks = {}
     local stderr_chunks = {}
+    local results = {}
 
     local stdout = vim.loop.new_pipe(false)
     local stderr = vim.loop.new_pipe(false)
@@ -133,11 +142,37 @@ function M.search(query, count, callback)
                 return
             end
 
-            local results = {}
-            local raw = table.concat(stdout_chunks, "")
+            callback(results, nil)
+        end)
+    end)
 
-            -- yt-dlp outputs one JSON object per line
-            for line in raw:gmatch("[^\n]+") do
+    if not handle then
+        if stdout then
+            pcall(function()
+                stdout:close()
+            end)
+        end
+        if stderr then
+            pcall(function()
+                stderr:close()
+            end)
+        end
+        callback({}, "Failed to spawn yt-dlp")
+        return
+    end
+
+    local partial_stdout = ""
+    stdout:read_start(function(_, data)
+        if data then
+            partial_stdout = partial_stdout .. data
+            local pos = 1
+            while true do
+                local newline = partial_stdout:find("\n", pos)
+                if not newline then break end
+                
+                local line = partial_stdout:sub(pos, newline - 1)
+                pos = newline + 1
+                
                 local ok, item = pcall(vim.json.decode, line)
                 if ok and type(item) == "table" then
                     local duration = 0
@@ -158,29 +193,9 @@ function M.search(query, count, callback)
                     }
                 end
             end
-
-            callback(results, nil)
-        end)
-    end)
-
-    if not handle then
-        if stdout then
-            pcall(function()
-                stdout:close()
-            end)
-        end
-        if stderr then
-            pcall(function()
-                stderr:close()
-            end)
-        end
-        callback({}, "Failed to spawn yt-dlp")
-        return
-    end
-
-    stdout:read_start(function(_, data)
-        if data then
-            stdout_chunks[#stdout_chunks + 1] = data
+            if pos > 1 then
+                partial_stdout = partial_stdout:sub(pos)
+            end
         end
     end)
 
@@ -260,14 +275,13 @@ function M.fetch_playlist(url)
     stdout:read_start(function(_, data)
         if data then
             partial = partial .. data
+            local pos = 1
             while true do
-                local newline = partial:find("\n")
-                if not newline then
-                    break
-                end
+                local newline = partial:find("\n", pos)
+                if not newline then break end
 
-                local line = partial:sub(1, newline - 1)
-                partial = partial:sub(newline + 1)
+                local line = partial:sub(pos, newline - 1)
+                pos = newline + 1
 
                 local ok, item = pcall(vim.json.decode, line)
                 if ok and type(item) == "table" then
@@ -283,6 +297,9 @@ function M.fetch_playlist(url)
                         end)
                     end
                 end
+            end
+            if pos > 1 then
+                partial = partial:sub(pos)
             end
         end
     end)
@@ -304,6 +321,8 @@ local function safe_truncate(str, max_width)
     if not str then
         return ""
     end
+    -- Strip newlines and control chars that break nvim_buf_set_lines
+    str = str:gsub("[\n\r\t]", " ")
     local visual_width = vim.fn.strdisplaywidth(str)
     if visual_width <= max_width then
         return str
@@ -352,12 +371,26 @@ function M.interactive_picker(initial_query)
         height = height,
         style = "minimal",
         border = "rounded",
-        title = "  YouTube Search  ",
+        title = " ♫ YouTube Search ",
         title_pos = "center",
     })
 
-    vim.wo[win].cursorline = true
+    -- Lock down all decorations to prevent content bleed-through
+    vim.wo[win].cursorline = false
     vim.wo[win].cursorlineopt = "line"
+    vim.wo[win].number = false
+    vim.wo[win].relativenumber = false
+    vim.wo[win].signcolumn = "no"
+    vim.wo[win].foldcolumn = "0"
+    vim.wo[win].wrap = false
+    vim.wo[win].winblend = 0
+    vim.wo[win].winhighlight = "Normal:NormalFloat"
+    if vim.fn.has("nvim-0.9") == 1 then
+        vim.wo[win].statuscolumn = ""
+    end
+
+    -- Re-measure actual content width after decorations are locked
+    width = vim.api.nvim_win_get_width(win)
 
     -- State
     local current_query = initial_query or ""
@@ -369,37 +402,66 @@ function M.interactive_picker(initial_query)
     local current_playing_url = nil -- Track URL of currently playing track
 
     -- Layout constants
-    local HEADER_LINES = 2
+    local HEADER_LINES = 2 -- prompt + separator
     local FOOTER_LINE = height
 
-    -- Column widths
-    local COL_ICON = 1
-    local COL_INDEX = 3
+    -- Lines per result card (title + meta + separator)
+    local LINES_PER_RESULT = 3
 
     -- Prompt
     local prompt_prefix = " 🔍 "
 
     -- Initial buffer setup
     local function render_initial()
+        local separator = string.rep("━", width)
         local lines = {
             prompt_prefix .. current_query,
-            string.rep("─", width),
+            separator,
+            "",
         }
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
         -- Apply highlights
         vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchPrompt", 0, 0, #prompt_prefix)
+        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchSeparator", 1, 0, -1)
     end
 
-    -- Render help footer
-    local function render_footer()
-        local help_text = " ↑↓/Tab Navigate  ↵ Play  a/A Queue  i Edit  q Close "
-        local last_line = vim.api.nvim_buf_line_count(buf) + 1
-        if last_line < FOOTER_LINE then
-            vim.api.nvim_buf_set_lines(buf, last_line, FOOTER_LINE, false, {})
+    -- Build footer lines and highlight data
+    local function build_footer_lines()
+        local badges = {
+            { key = "j/k", desc = "Navigate" },
+            { key = "↵",   desc = "Play" },
+            { key = "a",   desc = "Queue" },
+            { key = "i",   desc = "Search" },
+            { key = "q",   desc = "Close" },
+        }
+        local parts = {}
+        for _, b in ipairs(badges) do
+            table.insert(parts, string.format(" %s %s ", b.key, b.desc))
         end
-        vim.api.nvim_buf_set_lines(buf, FOOTER_LINE - 1, FOOTER_LINE, false, { "", help_text })
-        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchFooter", FOOTER_LINE, 0, -1)
+        local help_text = "  " .. table.concat(parts, "  │  ")
+        local sep = string.rep("─", width)
+        return { sep, help_text }, badges
+    end
+
+    -- Render footer at the bottom of the buffer (used for initial empty state)
+    local function render_footer()
+        local footer_lines, badges = build_footer_lines()
+        vim.bo[buf].modifiable = true
+        local line_count = vim.api.nvim_buf_line_count(buf)
+        vim.api.nvim_buf_set_lines(buf, line_count, -1, false, footer_lines)
+        local sep_line = line_count
+        local help_line = line_count + 1
+        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchSeparator", sep_line, 0, -1)
+        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchFooter", help_line, 0, -1)
+        local offset = 2
+        for _, b in ipairs(badges) do
+            local badge_str = string.format(" %s %s ", b.key, b.desc)
+            local key_str = " " .. b.key
+            vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchHotkey", help_line, offset, offset + #key_str)
+            offset = offset + #badge_str + 5
+        end
+        vim.bo[buf].modifiable = false
     end
 
     -- Render loading state with spinner
@@ -436,7 +498,7 @@ function M.interactive_picker(initial_query)
         end
     end
 
-    -- Render results - thumbnail + details format
+    -- Render results - premium card layout
     local function render_results()
         if not vim.api.nvim_buf_is_valid(buf) then
             return
@@ -451,40 +513,141 @@ function M.interactive_picker(initial_query)
             local is_selected = (i == selected_idx)
             local is_playing = (r.url == current_playing_url)
 
-            -- Thumbnail placeholder (box with video id or play icon)
-            local thumb = is_playing and "▶" or (is_selected and "▸" or "○")
+            -- Format duration
+            local dur = fmt_duration(r.duration)
 
-            -- Title on top, channel + duration on bottom
-            local title_line = r.title
-            local meta_line = r.channel .. " • " .. fmt_duration(r.duration)
+            -- Left accent: selected gets a bar, playing gets play icon, rest get space
+            local accent = is_playing and " ▶" or (is_selected and " ▎" or "  ")
 
-            -- Two-line format with thumbnail on left
-            table.insert(display, "  " .. thumb .. "  " .. title_line)
-            table.insert(display, "       " .. meta_line)
+            -- Index: zero-padded for alignment
+            local idx_str = string.format("%2d", i)
+
+            -- Calculate available title width
+            local prefix_width = vim.fn.strdisplaywidth(accent) + 1 + vim.fn.strdisplaywidth(idx_str) + 2 -- " idx. "
+            local title_max = width - prefix_width - 1
+
+            -- Build title line: " ▎  1. Title Here"
+            local title_text = safe_truncate(r.title, title_max)
+            local title_line = accent .. " " .. idx_str .. ". " .. title_text
+
+            -- Meta line: channel · duration (side by side)
+            local indent = string.rep(" ", vim.fn.strdisplaywidth(accent) + 1 + vim.fn.strdisplaywidth(idx_str) + 2)
+            local channel = r.channel and r.channel ~= "" and (r.channel:gsub("[\n\r]", " ")) or ""
+
+            local meta_parts = {}
+            if channel ~= "" then
+                table.insert(meta_parts, channel)
+            end
+            if dur ~= "" then
+                table.insert(meta_parts, dur)
+            end
+            if is_playing then
+                table.insert(meta_parts, "♫ Now Playing")
+            end
+
+            local meta_line = indent .. table.concat(meta_parts, "  ·  ")
+
+            -- Empty line separator
+            local sep_line = ""
+
+            table.insert(display, title_line)
+            table.insert(display, meta_line)
+            if i < #results then
+                table.insert(display, sep_line)
+            end
         end
 
-        -- Apply to buffer
+        -- Pad all lines to full window width
+        for idx, line in ipairs(display) do
+            local lw = vim.fn.strdisplaywidth(line)
+            if lw < width then
+                display[idx] = line .. string.rep(" ", width - lw)
+            end
+        end
+
+        -- Append footer
+        local footer_lines, badges = build_footer_lines()
+        for _, fl in ipairs(footer_lines) do
+            local fl_width = vim.fn.strdisplaywidth(fl)
+            if fl_width < width then
+                fl = fl .. string.rep(" ", width - fl_width)
+            end
+            table.insert(display, fl)
+        end
+
+        -- Write to buffer
         vim.bo[buf].modifiable = true
-        vim.api.nvim_buf_set_lines(buf, HEADER_LINES, -1, false, display)
+        vim.api.nvim_buf_set_lines(buf, 2, -1, false, display)
 
-        -- Clear old highlights and apply new ones
-        vim.api.nvim_buf_clear_namespace(buf, ns, HEADER_LINES, HEADER_LINES + #display)
+        -- Clear old highlights
+        vim.api.nvim_buf_clear_namespace(buf, ns, 2, 2 + #display)
 
+        -- Highlight each result card
         for i, r in ipairs(results) do
-            local title_line_num = HEADER_LINES + (i - 1) * 2
-            local meta_line_num = title_line_num + 1
+            local title_ln = 2 + (i - 1) * LINES_PER_RESULT
+            local meta_ln = title_ln + 1
+            local sep_ln = title_ln + 2
             local is_selected = (i == selected_idx)
             local is_playing = (r.url == current_playing_url)
 
-            -- Thumbnail column highlight
-            local thumb_hl = is_playing and "YTSearchPlaying" or (is_selected and "YTSearchSelected" or "YTSearchIndex")
-            vim.api.nvim_buf_add_highlight(buf, ns, thumb_hl, title_line_num, 2, 4)
+            local accent_byte_len = is_playing and #" ▶" or (is_selected and #" ▎" or 2)
 
-            -- Title highlight
-            vim.api.nvim_buf_add_highlight(buf, ns, is_selected and "YTSearchTitle" or "Normal", title_line_num, 6, -1)
+            if is_playing then
+                -- Playing: green accent + green title + green meta
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchPlaying", title_ln, 0, accent_byte_len)
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchPlayingTitle", title_ln, accent_byte_len, -1)
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchPlayingMeta", meta_ln, 0, -1)
+            elseif is_selected then
+                -- Selected: purple accent bar + highlighted bg on both lines
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchAccent", title_ln, 0, accent_byte_len)
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchSelectedTitle", title_ln, accent_byte_len, -1)
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchAccent", meta_ln, 0, accent_byte_len)
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchSelectedMeta", meta_ln, 0, -1)
 
-            -- Meta (channel + duration) highlight
-            vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchChannel", meta_line_num, 6, -1)
+                -- Duration portion on meta line
+                local meta_content = display[(i - 1) * LINES_PER_RESULT + 2] or ""
+                local dur = fmt_duration(r.duration)
+                if dur ~= "" then
+                    local dur_byte_start = meta_content:find(dur, 1, true)
+                    if dur_byte_start then
+                        -- Highlighting to the exact end of the duration text
+                        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchSelectedDur", meta_ln, dur_byte_start - 1, dur_byte_start - 1 + #dur)
+                    end
+                end
+            else
+                -- Normal: dim index, normal title, channel color
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchIndex", title_ln, 0, accent_byte_len + 5)
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchTitle", title_ln, accent_byte_len + 5, -1)
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchChannel", meta_ln, 0, -1)
+
+                -- Duration highlight on meta line
+                local meta_content = display[(i - 1) * LINES_PER_RESULT + 2] or ""
+                local dur = fmt_duration(r.duration)
+                if dur ~= "" then
+                    local dur_byte_start = meta_content:find(dur, 1, true)
+                    if dur_byte_start then
+                        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchDuration", meta_ln, dur_byte_start - 1, dur_byte_start - 1 + #dur)
+                    end
+                end
+            end
+
+            -- Separator line (dim)
+            if i < #results then
+                vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchSeparator", sep_ln, 0, -1)
+            end
+        end
+
+        -- Footer highlights
+        local footer_sep_line = 2 + #display - 2
+        local footer_help_line = 2 + #display - 1
+        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchSeparator", footer_sep_line, 0, -1)
+        vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchFooter", footer_help_line, 0, -1)
+        local offset = 2
+        for _, b in ipairs(badges) do
+            local badge_str = string.format(" %s %s ", b.key, b.desc)
+            local key_str = " " .. b.key
+            vim.api.nvim_buf_add_highlight(buf, ns, "YTSearchHotkey", footer_help_line, offset, offset + #key_str)
+            offset = offset + #badge_str + 5
         end
 
         vim.bo[buf].modifiable = false
@@ -560,15 +723,15 @@ function M.interactive_picker(initial_query)
             render_results()
 
             -- Jump to first result
-            vim.api.nvim_win_set_cursor(win, { HEADER_LINES, 0 })
+            vim.api.nvim_win_set_cursor(win, { HEADER_LINES + 1, 0 })
         end)
     end
 
     -- Get current result at cursor
     local function get_current_result()
         local r = vim.api.nvim_win_get_cursor(win)[1]
-        -- Each result takes 2 lines
-        local result_idx = math.floor((r - HEADER_LINES) / 2) + 1
+        -- Each result card takes LINES_PER_RESULT lines, offset by count bar + header
+        local result_idx = math.floor((r - HEADER_LINES - 1) / LINES_PER_RESULT) + 1
         if result_idx < 1 or result_idx > #results then
             return nil
         end
@@ -581,7 +744,7 @@ function M.interactive_picker(initial_query)
             return
         end
         selected_idx = math.max(1, math.min(#results, idx))
-        local target_line = HEADER_LINES + (selected_idx - 1) * 2
+        local target_line = HEADER_LINES + 1 + (selected_idx - 1) * LINES_PER_RESULT
         vim.api.nvim_win_set_cursor(win, { target_line, 0 })
         render_results()
     end
@@ -596,7 +759,7 @@ function M.interactive_picker(initial_query)
         end
 
         selected_idx = math.max(1, math.min(#results, selected_idx + dir))
-        local target_line = HEADER_LINES + (selected_idx - 1) * 2
+        local target_line = HEADER_LINES + 1 + (selected_idx - 1) * LINES_PER_RESULT
         vim.api.nvim_win_set_cursor(win, { target_line, 0 })
         render_results()
     end
@@ -726,6 +889,7 @@ function M.interactive_picker(initial_query)
     if initial_query and initial_query ~= "" then
         do_search()
     else
+        vim.bo[buf].modifiable = true
         vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
         vim.cmd("startinsert!")
     end

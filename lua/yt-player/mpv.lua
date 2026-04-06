@@ -115,14 +115,6 @@ local mp = require 'mp'
 local utils = require 'mp.utils'
 local msg = require 'mp.msg'
 
-local function fetch_segments(video_id)
-    local url = "https://sponsor.ajay.app/api/skipSegments?videoID=" .. video_id .. "&categories=[\"sponsor\",\"intro\",\"outro\",\"interaction\",\"selfpromo\",\"music_offtopic\"]"
-    local res = utils.subprocess({ args = {"curl", "-s", url}, assert = false })
-    if res.status ~= 0 or res.stdout == "" then return nil end
-    local ok, parsed = pcall(utils.parse_json, res.stdout)
-    if ok and type(parsed) == "table" then return parsed else return nil end
-end
-
 local segments = nil
 
 mp.register_event("file-loaded", function()
@@ -133,7 +125,22 @@ mp.register_event("file-loaded", function()
     if not video_id then return end
 
     msg.info("Fetching SponsorBlock for " .. video_id)
-    segments = fetch_segments(video_id)
+    local url = "https://sponsor.ajay.app/api/skipSegments?videoID=" .. video_id .. "&categories=[\"sponsor\",\"intro\",\"outro\",\"interaction\",\"selfpromo\",\"music_offtopic\"]"
+    
+    mp.command_native_async({
+        name = "subprocess",
+        args = {"curl", "-s", url},
+        capture_stdout = true,
+        playback_only = false,
+    }, function(success, res, err)
+        if success and res.status == 0 and res.stdout and res.stdout ~= "" then
+            local ok, parsed = pcall(utils.parse_json, res.stdout)
+            if ok and type(parsed) == "table" then
+                segments = parsed
+                msg.info("SponsorBlock segments loaded for " .. video_id)
+            end
+        end
+    end)
 end)
 
 mp.add_periodic_timer(1, function()
@@ -369,14 +376,15 @@ function M._process_ipc_buffer()
     ipc_buffer = ipc_buffer:sub(-(IPC_BUFFER_MAX / 2))
   end
 
+  local pos = 1
   while true do
-    local newline_pos = ipc_buffer:find("\n")
+    local newline_pos = ipc_buffer:find("\n", pos)
     if not newline_pos then
       break
     end
 
-    local line = ipc_buffer:sub(1, newline_pos - 1)
-    ipc_buffer = ipc_buffer:sub(newline_pos + 1)
+    local line = ipc_buffer:sub(pos, newline_pos - 1)
+    pos = newline_pos + 1
 
     if line ~= "" then
       vim.schedule(function()
@@ -384,6 +392,10 @@ function M._process_ipc_buffer()
         M._handle_ipc_message(line)
       end)
     end
+  end
+  
+  if pos > 1 then
+    ipc_buffer = ipc_buffer:sub(pos)
   end
 end
 

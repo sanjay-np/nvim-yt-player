@@ -137,6 +137,28 @@ local function make_section_header(title, width)
     return "╭" .. content .. "╮"
 end
 
+local _static_cache = { width = -1 }
+
+local function get_cached_header(title, width)
+    if _static_cache.width ~= width then _static_cache = { width = width } end
+    local k = "h_" .. title
+    if not _static_cache[k] then _static_cache[k] = make_header(title, width) end
+    return _static_cache[k]
+end
+
+local function get_cached_section_header(title, width)
+    if _static_cache.width ~= width then _static_cache = { width = width } end
+    local k = "s_" .. title
+    if not _static_cache[k] then _static_cache[k] = make_section_header(title, width) end
+    return _static_cache[k]
+end
+
+local function get_cached_footer(width)
+    if _static_cache.width ~= width then _static_cache = { width = width } end
+    if not _static_cache.footer then _static_cache.footer = make_footer(width) end
+    return _static_cache.footer
+end
+
 -- Setup highlight groups (Dracula-inspired colors for dark theme)
 local function setup_highlights()
     -- Only setup once
@@ -242,11 +264,11 @@ local function build_lines(state, is_float)
     if use_minimal then
         -- Minimal: title + mini progress on one line
         local mini_prog = mini_progress_bar(state.position, state.duration, width - 25)
-        table.insert(lines, make_header("Now Playing", width))
+        table.insert(lines, get_cached_header("Now Playing", width))
         add_row(string.format("♫ %s %s %s", safe_truncate(title, width - 30), mini_prog, pct))
     else
         -- Normal: Full visual hierarchy
-        table.insert(lines, make_header("Now Playing", width))
+        table.insert(lines, get_cached_header("Now Playing", width))
         
         -- Album Art Placeholder (left side) + Track Info (right side)
         -- All lines must be exactly 7 chars for proper alignment
@@ -316,20 +338,20 @@ local function build_lines(state, is_float)
     end
 
     -- Footer
-    table.insert(lines, make_footer(width))
+    table.insert(lines, get_cached_footer(width))
 
     -- Layer 4: Help section - reduced to 1 line (conditional)
     if not use_minimal and M.config.show_help then
-        table.insert(lines, make_section_header("Controls", width))
+        table.insert(lines, get_cached_section_header("Controls", width))
         add_row("[p/s/t]Play [b/n]Nav [m]Vol [</>]Speed [0-9]Seek [r]Radio [q]Exit")
-        table.insert(lines, make_footer(width))
+        table.insert(lines, get_cached_footer(width))
     end
 
     -- Compact Queue with duration (conditional)
     if M.config.show_queue and state.playlist and #state.playlist > 0 then
         local count_txt = string.format("%d/%d", (state.playlist_pos or 0) + 1, #state.playlist)
         
-        table.insert(lines, make_section_header("Queue (" .. count_txt .. ")", width))
+        table.insert(lines, get_cached_section_header("Queue (" .. count_txt .. ")", width))
 
         local limit = use_minimal and 3 or M.config.queue_limit
         local start_idx = math.max(1, (state.playlist_pos or 0))
@@ -361,7 +383,7 @@ local function build_lines(state, is_float)
         if end_idx < #state.playlist then
             add_row(string.format("│ +%d more", #state.playlist - end_idx))
         end
-        table.insert(lines, make_footer(width))
+        table.insert(lines, get_cached_footer(width))
     end
 
     return lines

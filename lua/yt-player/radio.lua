@@ -33,7 +33,6 @@ function M.on_queue_end()
         "ytsearch5:related to " .. M.last_url,
     }
 
-    local stdout_chunks = {}
     local stdout = vim.loop.new_pipe(false)
     local handle
 
@@ -52,23 +51,6 @@ function M.on_queue_end()
             if code ~= 0 then
                 vim.notify("YT Control: 📻 Failed to find related tracks", vim.log.levels.WARN)
                 return
-            end
-
-            local raw = table.concat(stdout_chunks, "")
-            local results = {}
-
-            for line in raw:gmatch("[^\n]+") do
-                local ok, item = pcall(vim.json.decode, line)
-                if ok and type(item) == "table" then
-                    local url = type(item.webpage_url) == "string" and item.webpage_url
-                        or (type(item.url) == "string" and item.url or "")
-                    local title = type(item.title) == "string" and item.title or "Unknown"
-
-                    -- Skip the track we just played
-                    if url ~= "" and url ~= M.last_url then
-                        table.insert(results, { url = url, title = title })
-                    end
-                end
             end
 
             if #results == 0 then
@@ -95,8 +77,36 @@ function M.on_queue_end()
         return
     end
 
+    local results = {}
+    local partial_stdout = ""
+
     stdout:read_start(function(_, data)
-        if data then stdout_chunks[#stdout_chunks + 1] = data end
+        if data then
+            partial_stdout = partial_stdout .. data
+            local pos = 1
+            while true do
+                local newline = partial_stdout:find("\n", pos)
+                if not newline then break end
+                
+                local line = partial_stdout:sub(pos, newline - 1)
+                pos = newline + 1
+                
+                local ok, item = pcall(vim.json.decode, line)
+                if ok and type(item) == "table" then
+                    local url = type(item.webpage_url) == "string" and item.webpage_url
+                        or (type(item.url) == "string" and item.url or "")
+                    local title = type(item.title) == "string" and item.title or "Unknown"
+
+                    -- Skip the track we just played
+                    if url ~= "" and url ~= M.last_url then
+                        table.insert(results, { url = url, title = title })
+                    end
+                end
+            end
+            if pos > 1 then
+                partial_stdout = partial_stdout:sub(pos)
+            end
+        end
     end)
 end
 
