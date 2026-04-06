@@ -2,19 +2,21 @@ local M = {}
 
 local uv = vim.loop
 local state_mod = require("yt-player.state")
+local yt_utils = require("yt-player.utils")
 
 M.config = {}
 M.mpv_job_id = nil
 M.ipc_pipe = nil
 M.ipc_connected = false
-M.ipc_socket_path = "/tmp/nvim-yt-player-ipc.sock"
-M.client_registry_path = "/tmp/nvim-yt-player-clients.json"
+M.ipc_socket_path = vim.fn.stdpath("cache") .. "/nvim-yt-player/ipc.sock"
+M.client_registry_path = vim.fn.stdpath("cache") .. "/nvim-yt-player/clients.json"
 M.is_external_client = false
 
 M.shutting_down = false
 
 -- IPC buffer (mpv sends JSON strings separated by newlines)
 local ipc_buffer = ""
+local IPC_BUFFER_MAX = 1024 * 1024 -- 1MB limit to prevent unbounded growth
 
 -- Pending commands to send once IPC is connected
 local pending_commands = {}
@@ -87,6 +89,12 @@ function M.setup(config)
   M.config = config
   M.shutting_down = false
   M.is_external_client = false
+
+  -- Ensure cache directory exists
+  local cache_dir = vim.fn.stdpath("cache") .. "/nvim-yt-player"
+  if vim.fn.isdirectory(cache_dir) == 0 then
+    vim.fn.mkdir(cache_dir, "p")
+  end
 
   -- Auto-connect if another instance is running
   local active_clients = cleanup_registry()
@@ -356,6 +364,11 @@ function M._flush_pending()
 end
 
 function M._process_ipc_buffer()
+  -- Safety: truncate buffer if it grows too large (prevents memory exhaustion)
+  if #ipc_buffer > IPC_BUFFER_MAX then
+    ipc_buffer = ipc_buffer:sub(-(IPC_BUFFER_MAX / 2))
+  end
+
   while true do
     local newline_pos = ipc_buffer:find("\n")
     if not newline_pos then
@@ -479,6 +492,13 @@ end
 
 --- High-level control function: Load URL
 function M.load_url(url)
+  -- Sanitize URL to prevent command injection
+  url = yt_utils.sanitize_url(url)
+  if url == "" then
+    vim.notify("YT Control: Invalid URL", vim.log.levels.ERROR)
+    return false
+  end
+
   -- Track URL for radio recommendations
   pcall(function() require("yt-player.radio").last_url = url end)
 
@@ -525,9 +545,10 @@ function M.shutdown()
     end
     M._cleanup_ipc()
 
-    -- Synchronously kill mpv as a guaranteed fallback.
-    -- os.execute is synchronous and works reliably during VimLeave.
-    os.execute("pkill -f " .. vim.fn.shellescape(M.ipc_socket_path) .. " 2>/dev/null")
+    -- Safer fallback: use socket filename in pattern to reduce false matches
+    -- (prefer jobstop via recorded job id when possible)
+    local socket_name = vim.fn.fnamemodify(M.ipc_socket_path, ":t")
+    os.execute("pkill -f 'mpv.*" .. vim.fn.shellescape(socket_name) .. "' 2>/dev/null")
 
     -- Clean up socket file
     pcall(function() os.remove(M.ipc_socket_path) end)

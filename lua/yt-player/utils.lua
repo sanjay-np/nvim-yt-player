@@ -18,4 +18,18 @@ function M.format_time(seconds)
     return string.format("%d:%02d", m, s)
 end
 
+---Sanitize URL to prevent command injection
+---@param url string
+---@return string
+function M.sanitize_url(url)
+    if not url or type(url) ~= "string" then
+        return ""
+    end
+    -- Remove newlines and control characters that could break IPC
+    url = url:gsub("[%c\r\n]", "")
+    -- Trim whitespace
+    url = url:match("^%s*(.-)%s*$") or url
+    return url
+end
+
 return M
