@@ -86,6 +86,17 @@ function M.open()
         if idx then mpv.send_command({ "set_property", "playlist-pos", idx }) end
     end, opts)
 
+    -- Save (s)
+    vim.keymap.set("n", "s", function()
+        local idx = get_idx()
+        local state = state_mod.get_current()
+        if idx and state.playlist and state.playlist[idx + 1] then
+            local item = state.playlist[idx + 1]
+            local title = item.title or (state.playlist_meta and state.playlist_meta[item.filename]) or item.filename or "Unknown"
+            require("yt-player.playlists").prompt_save({ title = title, url = item.filename })
+        end
+    end, opts)
+
     -- Remove (dd)
     vim.keymap.set("n", "dd", function()
         local idx = get_idx()

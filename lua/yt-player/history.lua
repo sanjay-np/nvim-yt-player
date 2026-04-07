@@ -187,6 +187,14 @@ function M.open_picker()
     vim.keymap.set("n", "A", queue_item, opts)
     vim.keymap.set("n", "<C-a>", queue_item, opts)
 
+    -- Save (s)
+    vim.keymap.set("n", "s", function()
+        local item = get_current_item()
+        if item then
+            require("yt-player.playlists").prompt_save(item)
+        end
+    end, opts)
+
     -- Navigation
     vim.keymap.set("n", "j", function() jump(1) end, opts)
     vim.keymap.set("n", "k", function() jump(-1) end, opts)

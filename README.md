@@ -8,8 +8,9 @@ Play YouTube audio directly from Neovim using **mpv** + **yt-dlp**. No browser, 
 - **🏗️ Zero-Dependency Backend**: Runs entirely on pure Lua via a local UNIX socket. No browser extension, no Node.js requirement, no external bloated servers. Just `mpv` and `yt-dlp`.
 - **🎨 Premium ASCII Visualizer UI**: Implements a dedicated (`:YT player`) animated player layout featuring a custom bounding-box grid, bouncy audio visualizer, interactive progress slidebar, and built-in queue alignment.
 - **🔍 Interactive Search Picker**: Search YouTube directly inside Neovim and preview video durations/channels in a native floating window buffer.
+- **📁 Local Playlists**: Save tracks into custom, locally-stored playlists using `s`. Manage and play them entirely within the split-pane manager (`:YT playlists`).
 - **📝 Interactive Queue Editor**: View and modify your active queue in real-time. Use `dd` to remove tracks or `J`/`K` to reorder them (`:YT queue_edit`).
-- **🎵 Endless Queuing & Playlists**: Instantly append streams or search results to your queue. You can even pass a full YouTube Playlist URL to rapidly ingest 100+ tracks (`:YT queue_playlist`).
+- **🎵 Endless Queuing & YouTube Playlists**: Instantly append streams or search results to your queue. You can even pass a full YouTube Playlist URL to rapidly ingest 100+ tracks (`:YT queue_playlist`).
 - **⏩ SponsorBlock Integration**: Natively caches and injects an mpv script to automatically skip sponsor and intro segments in YouTube videos (enable via config).
 - **🎛️ Total Control**: Full mappings to Play/Pause, Seek, Skip, Mute, Volume, and manipulate Playback Speed (0.25x – 3.0x).
 - **📊 Statusline Integration**: Formats progress bars smoothly for plugins like `lualine`
@@ -62,6 +63,7 @@ Or search directly from Neovim (opens in a custom interactive floating window!):
 In the interactive search window:
 - `<CR>` (Enter): Play result (replaces current track)
 - `<C-a>` (Ctrl+A) or `a` / `A` (in Normal mode): Append result to the queue
+- `s` (in Normal mode): Save track to a Local Playlist
 
 ## 📋 Commands
 
@@ -90,6 +92,7 @@ All functionality is grouped under a single `:YT` command with auto-completion (
 | `:YT info` | Toggle the floating player window |
 | `:YT history` | Browse play history |
 | `:YT history_clear` | Clear play history |
+| `:YT playlists` | Manage and play local custom playlists |
 | `:YT radio` | Toggle radio/autoplay mode |
 
 ## 🎛️ Player Windows

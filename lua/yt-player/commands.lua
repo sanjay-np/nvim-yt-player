@@ -178,6 +178,10 @@ function M._register()
       impl = function() require("yt-player.history").clear() end,
       desc = "Clear play history",
     },
+    playlists = {
+      impl = function() require("yt-player.playlists").open_manager() end,
+      desc = "Manage local playlists",
+    },
     radio = {
       impl = function() require("yt-player.radio").toggle() end,
       desc = "Toggle radio/autoplay mode",

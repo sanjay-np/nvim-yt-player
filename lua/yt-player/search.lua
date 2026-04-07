@@ -828,6 +828,15 @@ function M.interactive_picker(initial_query)
     vim.keymap.set("n", "A", append_result, opts)
     vim.keymap.set("n", "a", append_result, opts)
 
+    -- Save (s)
+    vim.keymap.set("n", "s", function()
+        if vim.fn.mode() == "i" then vim.cmd("stopinsert") end
+        local r = get_current_result()
+        if r then
+            require("yt-player.playlists").prompt_save(r)
+        end
+    end, opts)
+
     -- Navigation
     vim.keymap.set("n", "j", function()
         jump(1)
