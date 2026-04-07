@@ -105,10 +105,12 @@ function M.prompt_save(track)
         if not choice then return end
 
         if choice == "[Create New Playlist]" then
-            vim.ui.input({ prompt = "New Playlist Name: " }, function(input)
-                if input and vim.trim(input) ~= "" then
-                    M.add_track(vim.trim(input), track)
-                end
+            vim.schedule(function()
+                vim.ui.input({ prompt = "New Playlist Name: " }, function(input)
+                    if input and vim.trim(input) ~= "" then
+                        M.add_track(vim.trim(input), track)
+                    end
+                end)
             end)
         else
             M.add_track(choice, track)

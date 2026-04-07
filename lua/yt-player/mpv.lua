@@ -312,6 +312,8 @@ function M._connect_ipc_with_retry(attempt)
         M.send_command({ "observe_property", 8, "playlist" })
         M.send_command({ "observe_property", 9, "playlist-pos" })
         M.send_command({ "observe_property", 10, "playlist-count" })
+        M.send_command({ "observe_property", 11, "loop-file" })
+        M.send_command({ "observe_property", 12, "loop-playlist" })
 
         -- Fetch initial properties directly to populate the UI state immediately
         local function fetch_prop(prop_name)
@@ -327,6 +329,8 @@ function M._connect_ipc_with_retry(attempt)
         fetch_prop("speed")
         fetch_prop("playlist")
         fetch_prop("playlist-pos")
+        fetch_prop("loop-file")
+        fetch_prop("loop-playlist")
 
         -- Flush any pending commands that were queued before IPC was ready
         M._flush_pending()
@@ -410,6 +414,8 @@ local prop_map = {
   ["playlist"]       = { key = "playlist", default = {} },
   ["playlist-pos"]   = { key = "playlist_pos", default = 0 },
   ["playlist-count"] = { key = "playlist_count", default = 0 },
+  ["loop-file"]      = { key = "loop_file", default = false },
+  ["loop-playlist"]  = { key = "loop_playlist", default = false },
 }
 
 function M._handle_ipc_message(line)
