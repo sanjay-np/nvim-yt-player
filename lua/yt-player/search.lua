@@ -835,6 +835,12 @@ function M.interactive_picker(initial_query)
     vim.keymap.set("n", "k", function()
         jump(-1)
     end, opts)
+    vim.keymap.set({ "n", "i" }, "<Down>", function()
+        jump(1)
+    end, opts)
+    vim.keymap.set({ "n", "i" }, "<Up>", function()
+        jump(-1)
+    end, opts)
     vim.keymap.set("n", "<Tab>", function()
         jump(1)
     end, opts)
@@ -867,6 +873,53 @@ function M.interactive_picker(initial_query)
         is_searching = false
         vim.api.nvim_win_close(win, true)
     end, opts)
+
+    -- Prevent editing the prompt prefix
+    local function lock_prompt()
+        local cursor = vim.api.nvim_win_get_cursor(win)
+        if cursor[1] == 1 and cursor[2] < #prompt_prefix then
+            vim.api.nvim_win_set_cursor(win, { 1, #prompt_prefix })
+        end
+    end
+
+    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+        buffer = buf,
+        callback = lock_prompt,
+    })
+
+    vim.keymap.set("i", "<BS>", function()
+        local cursor = vim.api.nvim_win_get_cursor(win)
+        if cursor[1] == 1 and cursor[2] <= #prompt_prefix then
+            return ""
+        end
+        return "<BS>"
+    end, { buffer = buf, expr = true })
+
+    vim.keymap.set("i", "<C-u>", function()
+        local cursor = vim.api.nvim_win_get_cursor(win)
+        if cursor[1] == 1 and cursor[2] > #prompt_prefix then
+            return string.rep("<BS>", cursor[2] - #prompt_prefix)
+        elseif cursor[1] == 1 then
+            return ""
+        end
+        return "<C-u>"
+    end, { buffer = buf, expr = true })
+
+    vim.keymap.set("i", "<C-w>", function()
+        local cursor = vim.api.nvim_win_get_cursor(win)
+        if cursor[1] == 1 and cursor[2] <= #prompt_prefix then
+            return ""
+        end
+        return "<C-w>"
+    end, { buffer = buf, expr = true })
+
+    vim.keymap.set("i", "<Left>", function()
+        local cursor = vim.api.nvim_win_get_cursor(win)
+        if cursor[1] == 1 and cursor[2] <= #prompt_prefix then
+            return ""
+        end
+        return "<Left>"
+    end, { buffer = buf, expr = true })
 
     -- Search (new query) - press i to edit search
     vim.keymap.set("n", "i", enter_search_mode, opts)

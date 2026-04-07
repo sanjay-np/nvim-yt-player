@@ -511,8 +511,8 @@ function M.load_url(url)
     return false
   end
 
-  -- Track URL for radio recommendations
-  pcall(function() require("yt-player.radio").last_url = url end)
+  -- Track URL for radio recommendations and loop-prevention history
+  pcall(function() require("yt-player.radio").set_current_url(url) end)
 
   if not M.is_running() then
     M.start(url)
