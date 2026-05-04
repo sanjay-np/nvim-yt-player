@@ -3,7 +3,6 @@ local M = {}
 
 M.panel = { win_id = nil, buf_id = nil, update_timer = nil }
 M.float = { win_id = nil, buf_id = nil, update_timer = nil }
-M.queue_cursor = nil
 
 -- Mode state: nil = normal, true = minimal
 M.minimal_mode = nil
@@ -13,19 +12,18 @@ M.highlights_setup = false
 
 -- Module configuration (can be overridden via M.setup())
 M.config = {
-    show_visualizer = true,
-    show_help = true,
-    show_queue = true,
-    queue_limit = 5,
-    animate = true,
-    colors = true,
+	show_visualizer = true,
+	show_help = true,
+	show_queue = true,
+	queue_limit = 5,
+	colors = true,
 }
 
 -- Setup function to override config
 function M.setup(user_config)
-    if user_config then
-        M.config = vim.tbl_deep_extend("force", M.config, user_config)
-    end
+	if user_config then
+		M.config = vim.tbl_deep_extend("force", M.config, user_config)
+	end
 end
 
 local utils = require("yt-player.utils")
@@ -35,8 +33,15 @@ local ns_id = vim.api.nvim_create_namespace("yt_player_ui")
 
 -- Improved visualizer frames - cleaner, more musical look
 local visualizer_frames = {
-    " ▁▃▅▇▅▃▁ ", "▂▄▆█▆▄▂", "▄▆█▇█▆▄▂", "▆█▇▆▇█▆▄", "█▇▆▄▂▄▆▇",
-    "▇▆▄▂▄▆▇", "▆▄▂▄▆▇▆", "▄▂▄▆▇▆▄", "▂▄▆▇▆▄▂"
+	" ▁▃▅▇▅▃▁ ",
+	"▂▄▆█▆▄▂",
+	"▄▆█▇█▆▄▂",
+	"▆█▇▆▇█▆▄",
+	"█▇▆▄▂▄▆▇",
+	"▇▆▄▂▄▆▇",
+	"▆▄▂▄▆▇▆",
+	"▄▂▄▆▇▆▄",
+	"▂▄▆▇▆▄▂",
 }
 local frame_idx = 1
 
@@ -45,723 +50,702 @@ local panel_width = 40
 local float_width = 50
 
 local function progress_bar(position, duration, width)
-    width = width or 20
-    if not duration or duration <= 0 then return string.rep("─", width) end
-    local pct = math.min((position or 0) / duration, 1)
-    local filled = math.floor(pct * width)
-    
-    if filled == 0 then
-        return "○" .. string.rep("─", width - 1)
-    elseif filled >= width then
-        return string.rep("█", width - 1) .. "●"
-    else
-        return string.rep("█", filled) .. "▌" .. string.rep("─", width - filled - 1)
-    end
+	width = width or 20
+	if not duration or duration <= 0 then
+		return string.rep("─", width)
+	end
+	local pct = math.min((position or 0) / duration, 1)
+	local filled = math.floor(pct * width)
+
+	if filled == 0 then
+		return "○" .. string.rep("─", width - 1)
+	elseif filled >= width then
+		return string.rep("━", width - 1) .. "●"
+	else
+		return string.rep("━", filled) .. "●" .. string.rep("─", width - filled - 1)
+	end
 end
 
 local function mini_progress_bar(position, duration, width)
-    width = width or 15
-    if not duration or duration <= 0 then return string.rep("─", width) end
-    local pct = math.min((position or 0) / duration, 1)
-    local filled = math.floor(pct * width)
-    if filled == 0 then
-        return "○" .. string.rep("─", width - 1)
-    elseif filled >= width then
-        return string.rep("━", width - 1) .. "●"
-    else
-        return string.rep("━", filled) .. "○" .. string.rep("─", width - filled - 1)
-    end
-end
-
-local function volume_bar(volume, width)
-    width = width or 8
-    local filled = math.floor(math.min(math.max(volume or 100, 0), 100) / 100 * width)
-    local chars = {"▏","▎","▍","▌","▋","▊","▉","█"}
-    local result = ""
-    for i = 1, width do
-        if i <= filled then
-            local grad_idx = math.min(math.floor((i / width) * #chars) + 1, #chars)
-            result = result .. chars[grad_idx]
-        else
-            result = result .. "░"
-        end
-    end
-    return result
-end
-
-local function safe_truncate(str, max_width)
-    if not str then return "" end
-    local width = vim.fn.strdisplaywidth(str)
-    if width <= max_width then return str end
-
-    local chars = vim.fn.strchars(str)
-    local truncated = str
-    while vim.fn.strdisplaywidth(truncated) > max_width and chars > 0 do
-        chars = chars - 1
-        truncated = vim.fn.strcharpart(str, 0, chars)
-    end
-    return truncated
+	width = width or 15
+	if not duration or duration <= 0 then
+		return string.rep("─", width)
+	end
+	local pct = math.min((position or 0) / duration, 1)
+	local filled = math.floor(pct * width)
+	if filled == 0 then
+		return "○" .. string.rep("─", width - 1)
+	elseif filled >= width then
+		return string.rep("━", width - 1) .. "●"
+	else
+		return string.rep("━", filled) .. "●" .. string.rep("─", width - filled - 1)
+	end
 end
 
 local function center_text(str, width)
-    str = safe_truncate(str or "", width)
-    local len = vim.fn.strdisplaywidth(str)
-    local left = math.floor((width - len) / 2)
-    local right = width - len - left
-    return string.rep(" ", left) .. str .. string.rep(" ", right)
+	str = utils.safe_truncate(str or "", width)
+	local len = vim.fn.strdisplaywidth(str)
+	local left = math.floor((width - len) / 2)
+	local right = width - len - left
+	return string.rep(" ", left) .. str .. string.rep(" ", right)
 end
 
 local function pad_right(str, width)
-    str = safe_truncate(str or "", width)
-    local len = vim.fn.strdisplaywidth(str)
-    return str .. string.rep(" ", width - len)
+	return utils.pad_right(utils.safe_truncate(str or "", width), width)
 end
 
 -- Proper border width calculation
 local function make_header(title, width)
-    local content = "─ " .. title .. " ─"
-    local remaining = width - vim.fn.strdisplaywidth(content) - 2
-    if remaining > 0 then
-        content = content .. string.rep("─", remaining)
-    end
-    return "╭" .. content .. "╮"
+	local content = "─ " .. title .. " ─"
+	local remaining = width - vim.fn.strdisplaywidth(content) - 2
+	if remaining > 0 then
+		content = content .. string.rep("─", remaining)
+	end
+	return "╭" .. content .. "╮"
 end
 
 local function make_footer(width)
-    return "╰" .. string.rep("─", width - 2) .. "╯"
+	return "╰" .. string.rep("─", width - 2) .. "╯"
 end
 
 local function make_section_header(title, width)
-    local content = "─ " .. title
-    local remaining = width - vim.fn.strdisplaywidth(content) - 2
-    if remaining > 0 then
-        content = content .. string.rep("─", remaining)
-    end
-    return "╭" .. content .. "╮"
+	local content = "─ " .. title
+	local remaining = width - vim.fn.strdisplaywidth(content) - 2
+	if remaining > 0 then
+		content = content .. string.rep("─", remaining)
+	end
+	return "╭" .. content .. "╮"
 end
 
 local _static_cache = { width = -1 }
 
 local function get_cached_header(title, width)
-    if _static_cache.width ~= width then _static_cache = { width = width } end
-    local k = "h_" .. title
-    if not _static_cache[k] then _static_cache[k] = make_header(title, width) end
-    return _static_cache[k]
+	if _static_cache.width ~= width then
+		_static_cache = { width = width }
+	end
+	local k = "h_" .. title
+	if not _static_cache[k] then
+		_static_cache[k] = make_header(title, width)
+	end
+	return _static_cache[k]
 end
 
 local function get_cached_section_header(title, width)
-    if _static_cache.width ~= width then _static_cache = { width = width } end
-    local k = "s_" .. title
-    if not _static_cache[k] then _static_cache[k] = make_section_header(title, width) end
-    return _static_cache[k]
+	if _static_cache.width ~= width then
+		_static_cache = { width = width }
+	end
+	local k = "s_" .. title
+	if not _static_cache[k] then
+		_static_cache[k] = make_section_header(title, width)
+	end
+	return _static_cache[k]
 end
 
 local function get_cached_footer(width)
-    if _static_cache.width ~= width then _static_cache = { width = width } end
-    if not _static_cache.footer then _static_cache.footer = make_footer(width) end
-    return _static_cache.footer
+	if _static_cache.width ~= width then
+		_static_cache = { width = width }
+	end
+	if not _static_cache.footer then
+		_static_cache.footer = make_footer(width)
+	end
+	return _static_cache.footer
 end
 
 -- Setup highlight groups (Dracula-inspired colors for dark theme)
 local function setup_highlights()
-    -- Only setup once
-    if M.highlights_setup then return end
-    
-    -- Check if terminal supports true color
-    if not vim.o.termguicolors then return end
-    
-    local highlights = {
-        YtPlayerTitle = { fg = "#bd93f9", bold = true },      -- Purple
-        YtPlayerArtist = { fg = "#6272a4" },                  -- Grayish blue
-        YtPlayerProgress = { fg = "#50fa7b" },                -- Green
-        YtPlayerProgressBg = { fg = "#44475a" },              -- Dark gray
-        YtPlayerControls = { fg = "#8be9fd" },                -- Cyan
-        YtPlayerVolume = { fg = "#ffb86c" },                  -- Orange
-        YtPlayerRadio = { fg = "#ff79c6" },                   -- Pink
-        YtPlayerQueue = { fg = "#f8f8f2" },                   -- White
-        YtPlayerQueueCurrent = { fg = "#50fa7b", bold = true }, -- Green bold
-        YtPlayerBorder = { fg = "#6272a4" },                  -- Gray border
-        YtPlayerHelp = { fg = "#6272a4" },                    -- Gray help
-    }
-    
-    for name, opts in pairs(highlights) do
-        vim.api.nvim_set_hl(0, name, opts)
-    end
-    
-    M.highlights_setup = true
+	-- Only setup once
+	if M.highlights_setup then
+		return
+	end
+
+	-- Check if terminal supports true color
+	if not vim.o.termguicolors then
+		return
+	end
+
+	local highlights = {
+		YtPlayerTitle = { fg = "#bd93f9", bold = true }, -- Purple
+		YtPlayerArtist = { fg = "#6272a4" }, -- Grayish blue
+		YtPlayerProgress = { fg = "#50fa7b" }, -- Green
+		YtPlayerProgressBg = { fg = "#44475a" }, -- Dark gray
+		YtPlayerControls = { fg = "#8be9fd" }, -- Cyan
+		YtPlayerVolume = { fg = "#ffb86c" }, -- Orange
+		YtPlayerRadio = { fg = "#ff79c6" }, -- Pink
+		YtPlayerQueue = { fg = "#f8f8f2" }, -- White
+		YtPlayerQueueCurrent = { fg = "#50fa7b", bold = true }, -- Green bold
+		YtPlayerBorder = { fg = "#6272a4" }, -- Gray border
+		YtPlayerHelp = { fg = "#6272a4" }, -- Gray help
+	}
+
+	for name, opts in pairs(highlights) do
+		vim.api.nvim_set_hl(0, name, opts)
+	end
+
+	M.highlights_setup = true
 end
 
 -- Get actual window width for dynamic sizing
 local function get_win_width(win_id)
-    if win_id and vim.api.nvim_win_is_valid(win_id) then
-        return vim.api.nvim_win_get_width(win_id)
-    end
-    return nil
+	if win_id and vim.api.nvim_win_is_valid(win_id) then
+		return vim.api.nvim_win_get_width(win_id)
+	end
+	return nil
 end
 
 -- Determine target width based on window
 local function get_target_width(is_float)
-    if is_float then
-        return float_width
-    else
-        return panel_width
-    end
+	if is_float then
+		return float_width
+	else
+		return panel_width
+	end
 end
 
 -- Update stored width from actual window
 local function update_stored_width(win_id, is_float)
-    local w = get_win_width(win_id)
-    if w and w > 10 then
-        if is_float then
-            float_width = w
-        else
-            panel_width = w
-        end
-    end
+	local w = get_win_width(win_id)
+	if w and w > 10 then
+		if is_float then
+			float_width = w
+		else
+			panel_width = w
+		end
+	end
 end
 
 local function build_lines(state, is_float)
-    local is_playing = state.playing
-    local width = get_target_width(is_float)
-    local use_minimal = M.minimal_mode
-    local content_width = width - 4
+	local is_playing = state.playing
+	local width = get_target_width(is_float)
+	local use_minimal = M.minimal_mode
+	local content_width = width - 4
 
-    -- Animate visualizer if playing
-    if is_playing then
-        frame_idx = (frame_idx % #visualizer_frames) + 1
-    end
+	-- Animate visualizer if playing
+	if is_playing then
+		frame_idx = (frame_idx % #visualizer_frames) + 1
+	end
 
-    local vis = is_playing and visualizer_frames[frame_idx] or "         "
-    local title = state.title or "No Track"
-    local artist = state.artist or "Unknown Artist"
-    if artist == "" then artist = "Unknown Artist" end
+	local vis = is_playing and visualizer_frames[frame_idx] or "         "
+	local title = state.title or "No Track"
+	local artist = state.artist or "Unknown Artist"
+	if artist == "" then
+		artist = "Unknown Artist"
+	end
 
-    local vol = math.floor(state.volume or 100)
-    local speed_str = string.format("%.1fx", state.speed or 1)
+	local vol = math.floor(state.volume or 100)
+	local speed_str = string.format("%.1fx", state.speed or 1)
 
-    local pos_str = utils.format_time(state.position)
-    local dur_str = utils.format_time(state.duration)
-    local pct = (state.duration and state.duration > 0)
-        and string.format("%d%%", math.floor((state.position or 0) / state.duration * 100))
-        or "0%"
+	local pos_str = utils.format_time(state.position)
+	local dur_str = utils.format_time(state.duration)
+	local pct = (state.duration and state.duration > 0)
+			and string.format("%d%%", math.floor((state.position or 0) / state.duration * 100))
+		or "0%"
 
-    local lines = {}
-    local highlights = {} -- Store highlights for each line
-    
-    -- Helper to add bordered row with optional highlight
-    local function add_row(content, highlight)
-        table.insert(lines, string.format("│ %s │", pad_right(content, content_width)))
-        if highlight and M.config.colors then
-            table.insert(highlights, { line = #lines - 1, hl = highlight })
-        end
-    end
-    local function add_center(content, highlight)
-        table.insert(lines, string.format("│ %s │", center_text(content, content_width)))
-        if highlight and M.config.colors then
-            table.insert(highlights, { line = #lines - 1, hl = highlight })
-        end
-    end
+	local lines = {}
+	local highlights = {} -- Store highlights for each line
 
-    -- ╭─ Header ───────────────────────╮
-    -- LAYER 1: Track title + artist - PROMINENT
-    if use_minimal then
-        -- Minimal: title + mini progress on one line
-        local mini_prog = mini_progress_bar(state.position, state.duration, width - 25)
-        table.insert(lines, get_cached_header("Now Playing", width))
-        add_row(string.format("♫ %s %s %s", safe_truncate(title, width - 30), mini_prog, pct), "YtPlayerTitle")
-    else
-        -- Normal: Full visual hierarchy
-        table.insert(lines, get_cached_header("Now Playing", width))
-        
-        -- Album Art Placeholder (left side) + Track Info (right side)
-        -- All lines must be exactly 7 chars for proper alignment
-        local album_art = {
-            "[~~~~~]",
-            "[Album]",
-            "[ Art ]",
-            "-------",
-        }
-        
-        -- Calculate split: album art + track info
-        local art_width = 7
-        local info_width = content_width - art_width - 1
-        
-        -- Add album art + track info row
-        for i, art_line in ipairs(album_art) do
-            local info_line = ""
-            local hl = nil
-            if i == 1 then
-                info_line = safe_truncate(title, info_width)
-                hl = "YtPlayerTitle"
-            elseif i == 2 then
-                info_line = safe_truncate(artist, info_width)
-                hl = "YtPlayerArtist"
-            elseif i == 3 then
-                -- Duration info
-                info_line = string.format("⏱ %s / %s", pos_str, dur_str)
-            elseif i == 4 then
-                -- View count / playlist info if available
-                if state.view_count then
-                    info_line = string.format("👁 %s views", state.view_count)
-                elseif state.playlist_name then
-                    info_line = "📋 " .. safe_truncate(state.playlist_name, info_width - 2)
-                else
-                    info_line = ""
-                end
-            else
-                info_line = ""
-            end
-            table.insert(lines, string.format("│ %s %s │", art_line, pad_right(info_line, info_width)))
-            if hl and M.config.colors then
-                table.insert(highlights, { line = #lines - 1, hl = hl })
-            end
-        end
-        
-        -- Visualizer
-        if M.config.show_visualizer then
-            add_center("▃▅▆  " .. vis .. "  ▆▅▃", "YtPlayerProgress")
-        end
+	-- Helper to add bordered row with optional highlight
+	local function add_row(content, highlight)
+		table.insert(lines, string.format("│ %s │", pad_right(content, content_width)))
+		if highlight and M.config.colors then
+			table.insert(highlights, { line = #lines - 1, hl = highlight })
+		end
+	end
+	local function add_center(content, highlight)
+		table.insert(lines, string.format("│ %s │", center_text(content, content_width)))
+		if highlight and M.config.colors then
+			table.insert(highlights, { line = #lines - 1, hl = highlight })
+		end
+	end
 
-        -- Layer 2: Playback status + progress
-        local prog_bar = progress_bar(state.position, state.duration, width - 22)
-        local prog_line = string.format("%s %s %s", pos_str, prog_bar, dur_str)
-        add_row(prog_line, "YtPlayerProgress")
+	-- ╭─ Header ───────────────────────╮
+	-- LAYER 1: Track title + artist - PROMINENT
+	if use_minimal then
+		-- Minimal: title + mini progress on one line
+		local mini_prog = mini_progress_bar(state.position, state.duration, width - 25)
+		table.insert(lines, get_cached_header("Now Playing", width))
+		add_row(string.format("♫ %s %s %s", utils.safe_truncate(title, width - 30), mini_prog, pct), "YtPlayerTitle")
+	else
+		-- Normal: Full visual hierarchy
+		table.insert(lines, get_cached_header("Now Playing", width))
 
-        -- Layer 3: Volume + Speed (secondary info)
-        local vol_icon = (state.muted or vol == 0) and "🔇" or (vol > 50 and "🔊" or "🔉")
-        local vol_line = string.format("%s %d%%  ⏩ %s", vol_icon, vol, speed_str)
-        add_row(vol_line, "YtPlayerVolume")
+		-- Album Art Placeholder (left side) + Track Info (right side)
+		-- All lines must be exactly 7 chars for proper alignment
+		local album_art = {
+			"[~~~~~]",
+			"[Album]",
+			"[ Art ]",
+			"-------",
+		}
 
-        -- Controls: compact icons
-        local ctrl_icon = is_playing and "⏸" or "▶"
-        local ctrl = string.format("⏮ │ %s │ ⏭    %s │ 🔀", ctrl_icon, vol_icon)
-        add_center(ctrl, "YtPlayerControls")
+		-- Calculate split: album art + track info
+		local art_width = 7
+		local info_width = content_width - art_width - 1
 
-        -- Loop / Radio mode indicator
-        local radio_on = pcall(function()
-            return require("yt-player.radio").enabled
-        end) and require("yt-player.radio").enabled
-        
-        local mode_str = ""
-        local mode_hl = ""
-        if state.loop_file and state.loop_file ~= "no" and state.loop_file ~= false then
-            mode_str = "🔂 Loop: Track"
-            mode_hl = "YtPlayerRadio"
-        elseif state.loop_playlist and state.loop_playlist ~= "no" and state.loop_playlist ~= false then
-            mode_str = "🔁 Loop: Playlist"
-            mode_hl = "YtPlayerRadio"
-        elseif radio_on then
-            mode_str = "📻 Radio Mode"
-            mode_hl = "YtPlayerRadio"
-        end
+		-- Add album art + track info row
+		for i, art_line in ipairs(album_art) do
+			local info_line = ""
+			local hl = nil
+			if i == 1 then
+				info_line = utils.safe_truncate(title, info_width)
+				hl = "YtPlayerTitle"
+			elseif i == 2 then
+				info_line = utils.safe_truncate(artist, info_width)
+				hl = "YtPlayerArtist"
+			elseif i == 3 then
+				-- Duration info
+				info_line = string.format("⏱ %s / %s", pos_str, dur_str)
+			elseif i == 4 then
+				-- View count / playlist info if available
+				if state.view_count then
+					info_line = string.format("👁 %s views", state.view_count)
+				elseif state.playlist_name then
+					info_line = "📋 " .. utils.safe_truncate(state.playlist_name, info_width - 2)
+				else
+					info_line = ""
+				end
+			else
+				info_line = ""
+			end
+			table.insert(lines, string.format("│ %s %s │", art_line, pad_right(info_line, info_width)))
+			if hl and M.config.colors then
+				table.insert(highlights, { line = #lines - 1, hl = hl })
+			end
+		end
 
-        if mode_str ~= "" then
-            add_center(mode_str, mode_hl)
-        end
-    end
+		-- Visualizer
+		if M.config.show_visualizer then
+			add_center("▃▅▆  " .. vis .. "  ▆▅▃", "YtPlayerProgress")
+		end
 
-    -- Footer
-    table.insert(lines, get_cached_footer(width))
+		-- Layer 2: Playback status + progress
+		local prog_bar = progress_bar(state.position, state.duration, width - 22)
+		local prog_line = string.format("%s %s %s", pos_str, prog_bar, dur_str)
+		add_row(prog_line, "YtPlayerProgress")
 
-    -- Layer 4: Help section - reduced to 1 line (conditional)
-    if not use_minimal and M.config.show_help then
-        table.insert(lines, get_cached_section_header("Controls", width))
-        add_row("[p/s/t]Play [b/n]Nav [m]Vol [</>]Speed [0-9]Seek [r]Radio [q]Exit", "YtPlayerHelp")
-        table.insert(lines, get_cached_footer(width))
-    end
+		-- Layer 3: Volume + Speed (secondary info)
+		local vol_icon = (state.muted or vol == 0) and "🔇" or (vol > 50 and "🔊" or "🔉")
+		local vol_line = string.format("%s %d%%  ⏩ %s", vol_icon, vol, speed_str)
+		add_row(vol_line, "YtPlayerVolume")
 
-    -- Compact Queue with duration (conditional)
-    if M.config.show_queue and state.playlist and #state.playlist > 0 then
-        local count_txt = string.format("%d/%d", (state.playlist_pos or 0) + 1, #state.playlist)
-        
-        table.insert(lines, get_cached_section_header("Queue (" .. count_txt .. ")", width))
+		-- Controls: compact icons
+		local ctrl_icon = is_playing and "⏸" or "▶"
+		local ctrl = string.format("⏮ │ %s │ ⏭    %s │ 🔀", ctrl_icon, vol_icon)
+		add_center(ctrl, "YtPlayerControls")
 
-        local limit = use_minimal and 3 or M.config.queue_limit
-        local start_idx = math.max(1, (state.playlist_pos or 0))
-        local end_idx = math.min(#state.playlist, start_idx + limit - 1)
+		-- Loop / Radio mode indicator
+		local radio_on = pcall(function()
+			return require("yt-player.radio").enabled
+		end) and require("yt-player.radio").enabled
 
-        -- Adjust viewport if queue_cursor is out of bounds
-        if M.queue_cursor then
-            if M.queue_cursor < start_idx then
-                start_idx = M.queue_cursor
-                end_idx = math.min(#state.playlist, start_idx + limit - 1)
-            elseif M.queue_cursor > end_idx then
-                end_idx = M.queue_cursor
-                start_idx = math.max(1, end_idx - limit + 1)
-            end
-        end
+		local mode_str = ""
+		local mode_hl = ""
+		if state.loop_file and state.loop_file ~= "no" and state.loop_file ~= false then
+			mode_str = "🔂 Loop: Track"
+			mode_hl = "YtPlayerRadio"
+		elseif state.loop_playlist and state.loop_playlist ~= "no" and state.loop_playlist ~= false then
+			mode_str = "🔁 Loop: Playlist"
+			mode_hl = "YtPlayerRadio"
+		elseif radio_on then
+			mode_str = "📻 Radio Mode"
+			mode_hl = "YtPlayerRadio"
+		end
 
-        for i = start_idx, end_idx do
-            local item = state.playlist[i]
-            local is_current = (i - 1 == state.playlist_pos)
-            local is_selected = (M.queue_cursor == i)
-            local prefix = is_current and "▸" or "│"
-            if is_selected then
-                prefix = is_current and "▶" or ">"
-            end
-            
-            local item_title = item.title or (state.playlist_meta and state.playlist_meta[item.filename]) or
-                item.filename or "Unknown"
-            
-            -- Get duration if available
-            local dur = item.duration or (item.length_sec)
-            local dur_str = dur and utils.format_time(dur) or ""
-            
-            -- Format: "▸ 1. Track Title        3:45" or "│ 2. Track Title        3:45"
-            local qitem = string.format("%s %d. %s%s", prefix, i, 
-                pad_right(safe_truncate(item_title, width - 16), width - 16),
-                dur_str)
-                
-            local hl = is_current and "YtPlayerQueueCurrent" or "YtPlayerQueue"
-            if is_selected and not is_current then
-                hl = "YtPlayerControls"
-            end
-            
-            add_row(qitem, hl)
-            
-            -- Visual separator after current track
-            if is_current and i < end_idx then
-                add_row(pad_right("├" .. string.rep("─", content_width - 1), content_width), "YtPlayerBorder")
-            end
-        end
+		if mode_str ~= "" then
+			add_center(mode_str, mode_hl)
+		end
+	end
 
-        if end_idx < #state.playlist then
-            add_row(string.format("│ +%d more", #state.playlist - end_idx))
-        end
-        table.insert(lines, get_cached_footer(width))
-    end
+	-- Footer
+	table.insert(lines, get_cached_footer(width))
 
-    return lines, highlights
+	-- Layer 4: Help section - reduced to 1 line (conditional)
+	if not use_minimal and M.config.show_help then
+		table.insert(lines, get_cached_section_header("Controls", width))
+		add_row("[p/s/t]Play [b/n]Nav [m]Vol [</>]Speed [0-9]Seek [r]Radio [M]Mini [q]Exit", "YtPlayerHelp")
+		table.insert(lines, get_cached_footer(width))
+	end
+
+	-- Compact Queue with duration (conditional)
+	if M.config.show_queue and state.playlist and #state.playlist > 0 then
+		local count_txt = string.format("%d/%d", (state.playlist_pos or 0) + 1, #state.playlist)
+
+		table.insert(lines, get_cached_section_header("Queue (" .. count_txt .. ")", width))
+
+		local limit = use_minimal and 3 or M.config.queue_limit
+		local start_idx = math.max(1, (state.playlist_pos or 0))
+		local end_idx = math.min(#state.playlist, start_idx + limit - 1)
+
+		for i = start_idx, end_idx do
+			local item = state.playlist[i]
+			local is_current = (i - 1 == state.playlist_pos)
+			local prefix = is_current and "▸" or "│"
+
+			local item_title = item.title
+				or (state.playlist_meta and state.playlist_meta[item.filename])
+				or item.filename
+				or "Unknown"
+
+			-- Get duration if available
+			local dur = item.duration or item.length_sec
+			local dur_str = dur and utils.format_time(dur) or ""
+
+			-- Format: "▸ 1. Track Title        3:45" or "│ 2. Track Title        3:45"
+			local qitem = string.format(
+				"%s %d. %s%s",
+				prefix,
+				i,
+				pad_right(utils.safe_truncate(item_title, width - 16), width - 16),
+				dur_str
+			)
+
+			local hl = is_current and "YtPlayerQueueCurrent" or "YtPlayerQueue"
+
+			add_row(qitem, hl)
+
+			-- Visual separator after current track
+			if is_current and i < end_idx then
+				add_row(pad_right("├" .. string.rep("─", content_width - 1), content_width), "YtPlayerBorder")
+			end
+		end
+
+		if end_idx < #state.playlist then
+			add_row(string.format("│ +%d more", #state.playlist - end_idx))
+		end
+		table.insert(lines, get_cached_footer(width))
+	end
+
+	return lines, highlights
 end
 
 local function calc_width(lines)
-    local max = 0
-    for _, line in ipairs(lines) do
-        local w = vim.fn.strdisplaywidth(line)
-        if w > max then max = w end
-    end
-    return math.max(max, 30)
+	local max = 0
+	for _, line in ipairs(lines) do
+		local w = vim.fn.strdisplaywidth(line)
+		if w > max then
+			max = w
+		end
+	end
+	return math.max(max, 30)
 end
 
 local function refresh_instance(inst, is_float)
-    if not inst.buf_id or not vim.api.nvim_buf_is_valid(inst.buf_id) then return false end
-    if not inst.win_id or not vim.api.nvim_win_is_valid(inst.win_id) then return false end
+	if not inst.buf_id or not vim.api.nvim_buf_is_valid(inst.buf_id) then
+		return false
+	end
+	if not inst.win_id or not vim.api.nvim_win_is_valid(inst.win_id) then
+		return false
+	end
 
-    -- Update stored width from actual window
-    update_stored_width(inst.win_id, is_float)
-    
-    local lines, highlights = build_lines(state_mod.get_current(), is_float)
-    vim.bo[inst.buf_id].modifiable = true
-    vim.api.nvim_buf_set_lines(inst.buf_id, 0, -1, false, lines)
-    vim.bo[inst.buf_id].modifiable = false
+	-- Update stored width from actual window
+	update_stored_width(inst.win_id, is_float)
 
-    -- Apply highlights
-    if highlights and #highlights > 0 then
-        vim.api.nvim_buf_clear_namespace(inst.buf_id, ns_id, 0, -1)
-        for _, hl_info in ipairs(highlights) do
-            pcall(vim.api.nvim_buf_add_highlight, inst.buf_id, ns_id, hl_info.hl, hl_info.line, 0, -1)
-        end
-    end
+	local lines, highlights = build_lines(state_mod.get_current(), is_float)
+	local state_hash = table.concat(lines, "\n")
 
-    if is_float then
-        vim.api.nvim_win_set_config(inst.win_id, { width = calc_width(lines), height = #lines })
-    end
-    return true
+	if inst.last_hash == state_hash then
+		return true -- No structural changes, skip redraw
+	end
+	inst.last_hash = state_hash
+
+	vim.bo[inst.buf_id].modifiable = true
+	vim.api.nvim_buf_set_lines(inst.buf_id, 0, -1, false, lines)
+	vim.bo[inst.buf_id].modifiable = false
+
+	-- Apply highlights
+	if highlights and #highlights > 0 then
+		vim.api.nvim_buf_clear_namespace(inst.buf_id, ns_id, 0, -1)
+		for _, hl_info in ipairs(highlights) do
+			pcall(vim.api.nvim_buf_add_highlight, inst.buf_id, ns_id, hl_info.hl, hl_info.line, 0, -1)
+		end
+	end
+
+	if is_float then
+		vim.api.nvim_win_set_config(inst.win_id, { width = calc_width(lines), height = #lines })
+	end
+	return true
 end
 
 local function refresh_panel()
-    if not refresh_instance(M.panel, false) then M.close_panel() end
+	if not refresh_instance(M.panel, false) then
+		M.close_panel()
+	end
 end
 
 local function refresh_float()
-    if not refresh_instance(M.float, true) then M.close_float() end
+	if not refresh_instance(M.float, true) then
+		M.close_float()
+	end
 end
 
 local function setup_keymaps(buf, is_float)
-    local o = { noremap = true, silent = true, buffer = buf }
-    local refresh = is_float and refresh_float or refresh_panel
-    local close = is_float and M.close_float or M.close_panel
-    local cmd = function(c)
-        return function()
-            require("yt-player").command(c); vim.defer_fn(refresh, 200)
-        end
-    end
+	local o = { noremap = true, silent = true, buffer = buf }
+	local refresh = is_float and refresh_float or refresh_panel
+	local close = is_float and M.close_float or M.close_panel
+	local cmd = function(c)
+		return function()
+			require("yt-player").command(c)
+			vim.defer_fn(refresh, 200)
+		end
+	end
 
-    vim.keymap.set("n", "q", close, o)
-    vim.keymap.set("n", "<Esc>", close, o)
-    vim.keymap.set("n", "p", cmd({ "set_property", "pause", false }), o)
-    vim.keymap.set("n", "s", cmd({ "set_property", "pause", true }), o)
-    vim.keymap.set("n", "t", cmd({ "cycle", "pause" }), o)
-    vim.keymap.set("n", "n",
-        function()
-            require("yt-player").command({ "playlist-next", "weak" })
-            vim.defer_fn(refresh, 500)
-        end, o)
-    vim.keymap.set("n", "b",
-        function()
-            require("yt-player").command({ "playlist-prev", "weak" })
-            vim.defer_fn(refresh, 500)
-        end, o)
-    vim.keymap.set("n", "m", cmd({ "cycle", "mute" }), o)
-    vim.keymap.set("n", ">", cmd({ "add", "speed", 0.25 }), o)
-    vim.keymap.set("n", "<", cmd({ "add", "speed", -0.25 }), o)
-    vim.keymap.set("n", "+", cmd({ "add", "volume", 5 }), o)
-    vim.keymap.set("n", "-", cmd({ "add", "volume", -5 }), o)
-    vim.keymap.set("n", "l", cmd({ "seek", 5, "relative" }), o)
-    vim.keymap.set("n", "h", cmd({ "seek", -5, "relative" }), o)
-    vim.keymap.set("n", "L", cmd({ "seek", 30, "relative" }), o)
-    vim.keymap.set("n", "H", cmd({ "seek", -30, "relative" }), o)
-    
-    -- Keyboard seeking: 0-9 jump to 0%-90%, G goes to end
-    for i = 0, 9 do
-        local pct = i * 10
-        vim.keymap.set("n", tostring(i), function()
-            require("yt-player").command({ "seek", pct, "absolute-percent" })
-            vim.defer_fn(refresh, 200)
-        end, o)
-    end
-    vim.keymap.set("n", "G", function()
-        require("yt-player").command({ "seek", 100, "absolute-percent" })
-        vim.defer_fn(refresh, 200)
-    end, o)
-    
-    -- Loop / Repeat controls
-    vim.keymap.set("n", "R", function()
-        local s = state_mod.get_current()
-        if s.loop_file and s.loop_file ~= "no" and s.loop_file ~= false then
-            require("yt-player").command({ "set_property", "loop-file", "no" })
-            require("yt-player").command({ "set_property", "loop-playlist", "inf" })
-        elseif s.loop_playlist and s.loop_playlist ~= "no" and s.loop_playlist ~= false then
-            require("yt-player").command({ "set_property", "loop-playlist", "no" })
-        else
-            require("yt-player").command({ "set_property", "loop-file", "inf" })
-        end
-        vim.defer_fn(refresh, 200)
-    end, o)
+	vim.keymap.set("n", "q", close, o)
+	vim.keymap.set("n", "<Esc>", close, o)
+	vim.keymap.set("n", "p", cmd({ "set_property", "pause", false }), o)
+	vim.keymap.set("n", "s", cmd({ "set_property", "pause", true }), o)
+	vim.keymap.set("n", "t", cmd({ "cycle", "pause" }), o)
+	vim.keymap.set("n", "n", function()
+		require("yt-player").command({ "playlist-next", "weak" })
+		vim.defer_fn(refresh, 500)
+	end, o)
+	vim.keymap.set("n", "b", function()
+		require("yt-player").command({ "playlist-prev", "weak" })
+		vim.defer_fn(refresh, 500)
+	end, o)
+	vim.keymap.set("n", "m", cmd({ "cycle", "mute" }), o)
+	vim.keymap.set("n", ">", cmd({ "add", "speed", 0.25 }), o)
+	vim.keymap.set("n", "<", cmd({ "add", "speed", -0.25 }), o)
+	vim.keymap.set("n", "+", cmd({ "add", "volume", 5 }), o)
+	vim.keymap.set("n", "-", cmd({ "add", "volume", -5 }), o)
+	vim.keymap.set("n", "l", cmd({ "seek", 5, "relative" }), o)
+	vim.keymap.set("n", "h", cmd({ "seek", -5, "relative" }), o)
+	vim.keymap.set("n", "L", cmd({ "seek", 30, "relative" }), o)
+	vim.keymap.set("n", "H", cmd({ "seek", -30, "relative" }), o)
 
-    -- Queue interaction
-    vim.keymap.set("n", "J", function()
-        local s = state_mod.get_current()
-        if not s.playlist or #s.playlist == 0 then return end
-        if not M.queue_cursor then
-            M.queue_cursor = math.max(1, (s.playlist_pos or 0) + 1)
-        elseif M.queue_cursor < #s.playlist then
-            M.queue_cursor = M.queue_cursor + 1
-        end
-        refresh()
-    end, o)
+	-- Keyboard seeking: 0-9 jump to 0%-90%, G goes to end
+	for i = 0, 9 do
+		local pct = i * 10
+		vim.keymap.set("n", tostring(i), function()
+			require("yt-player").command({ "seek", pct, "absolute-percent" })
+			vim.defer_fn(refresh, 200)
+		end, o)
+	end
+	vim.keymap.set("n", "G", function()
+		require("yt-player").command({ "seek", 100, "absolute-percent" })
+		vim.defer_fn(refresh, 200)
+	end, o)
 
-    vim.keymap.set("n", "K", function()
-        local s = state_mod.get_current()
-        if not s.playlist or #s.playlist == 0 then return end
-        if not M.queue_cursor then
-            M.queue_cursor = math.max(1, (s.playlist_pos or 0) + 1)
-        elseif M.queue_cursor > 1 then
-            M.queue_cursor = M.queue_cursor - 1
-        end
-        refresh()
-    end, o)
+	-- Loop / Repeat controls
+	vim.keymap.set("n", "R", function()
+		local s = state_mod.get_current()
+		if s.loop_file and s.loop_file ~= "no" and s.loop_file ~= false then
+			require("yt-player").command({ "set_property", "loop-file", "no" })
+			require("yt-player").command({ "set_property", "loop-playlist", "inf" })
+		elseif s.loop_playlist and s.loop_playlist ~= "no" and s.loop_playlist ~= false then
+			require("yt-player").command({ "set_property", "loop-playlist", "no" })
+		else
+			require("yt-player").command({ "set_property", "loop-file", "inf" })
+		end
+		vim.defer_fn(refresh, 200)
+	end, o)
 
-    vim.keymap.set("n", "d", function()
-        local s = state_mod.get_current()
-        if M.queue_cursor and s.playlist and #s.playlist >= M.queue_cursor then
-            require("yt-player").command({ "playlist-remove", M.queue_cursor - 1 })
-            if M.queue_cursor == #s.playlist and M.queue_cursor > 1 then
-                M.queue_cursor = M.queue_cursor - 1
-            elseif M.queue_cursor > #s.playlist - 1 then
-                M.queue_cursor = nil
-            end
-            vim.defer_fn(refresh, 200)
-        end
-    end, o)
-
-    vim.keymap.set("n", "<CR>", function()
-        local s = state_mod.get_current()
-        if M.queue_cursor and s.playlist and #s.playlist >= M.queue_cursor then
-            require("yt-player").command({ "set_property", "playlist-pos", M.queue_cursor - 1 })
-            vim.defer_fn(refresh, 200)
-        end
-    end, o)
-    
-    vim.keymap.set("n", "r", function()
-        require("yt-player.radio").toggle(); refresh()
-    end, o)
-    -- Toggle minimal mode
-    vim.keymap.set("n", "M", function()
-        M.minimal_mode = not M.minimal_mode
-        refresh()
-    end, o)
+	vim.keymap.set("n", "r", function()
+		require("yt-player.radio").toggle()
+		refresh()
+	end, o)
+	-- Toggle minimal mode
+	vim.keymap.set("n", "M", function()
+		M.minimal_mode = not M.minimal_mode
+		refresh()
+	end, o)
 end
 
 ---------- PANEL ----------
 
 function M.open_panel()
-    -- Setup highlights if enabled
-    if M.config.colors then
-        setup_highlights()
-    end
-    
-    if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
-        refresh_panel()
-        vim.api.nvim_set_current_win(M.panel.win_id)
-        return
-    end
+	-- Setup highlights if enabled
+	if M.config.colors then
+		setup_highlights()
+	end
 
-    local lines, highlights = build_lines(state_mod.get_current(), false)
+	if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
+		refresh_panel()
+		vim.api.nvim_set_current_win(M.panel.win_id)
+		return
+	end
 
-    M.panel.buf_id = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(M.panel.buf_id, 0, -1, false, lines)
-    
-    if highlights and #highlights > 0 then
-        for _, hl_info in ipairs(highlights) do
-            pcall(vim.api.nvim_buf_add_highlight, M.panel.buf_id, ns_id, hl_info.hl, hl_info.line, 0, -1)
-        end
-    end
-    
-    vim.bo[M.panel.buf_id].modifiable = false
-    vim.bo[M.panel.buf_id].bufhidden = "wipe"
-    vim.bo[M.panel.buf_id].buftype = "nofile"
-    vim.bo[M.panel.buf_id].filetype = "yt-player-player"
-    vim.bo[M.panel.buf_id].swapfile = false
+	local lines, highlights = build_lines(state_mod.get_current(), false)
 
-    vim.cmd("botright 45vsplit")
-    M.panel.win_id = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(M.panel.win_id, M.panel.buf_id)
-    
-    -- Get actual panel width after creation
-    panel_width = vim.api.nvim_win_get_width(M.panel.win_id)
+	M.panel.buf_id = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(M.panel.buf_id, 0, -1, false, lines)
 
-    vim.wo[M.panel.win_id].cursorline = false
-    vim.wo[M.panel.win_id].number = false
-    vim.wo[M.panel.win_id].relativenumber = false
-    vim.wo[M.panel.win_id].signcolumn = "no"
-    vim.wo[M.panel.win_id].wrap = false
-    vim.wo[M.panel.win_id].winfixwidth = true -- Prevent width from changing on layout resize
+	if highlights and #highlights > 0 then
+		for _, hl_info in ipairs(highlights) do
+			pcall(vim.api.nvim_buf_add_highlight, M.panel.buf_id, ns_id, hl_info.hl, hl_info.line, 0, -1)
+		end
+	end
+	M.panel.last_hash = table.concat(lines, "\n")
 
-    setup_keymaps(M.panel.buf_id, false)
+	vim.bo[M.panel.buf_id].modifiable = false
+	vim.bo[M.panel.buf_id].bufhidden = "wipe"
+	vim.bo[M.panel.buf_id].buftype = "nofile"
+	vim.bo[M.panel.buf_id].filetype = "yt-player-player"
+	vim.bo[M.panel.buf_id].swapfile = false
 
-    M.panel.update_timer = (vim.uv or vim.loop).new_timer()
-    M.panel.update_timer:start(200, 200, vim.schedule_wrap(function()
-        if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then refresh_panel() else M.close_panel() end
-    end))
+	vim.cmd("botright 45vsplit")
+	M.panel.win_id = vim.api.nvim_get_current_win()
+	vim.api.nvim_win_set_buf(M.panel.win_id, M.panel.buf_id)
 
-    vim.api.nvim_create_autocmd("BufWipeout", {
-        buffer = M.panel.buf_id,
-        once = true,
-        callback = function()
-            if M.panel.update_timer then
-                pcall(function()
-                    M.panel.update_timer:stop(); M.panel.update_timer:close()
-                end)
-            end
-            M.panel.update_timer = nil
-            M.panel.win_id = nil
-            M.panel.buf_id = nil
-        end,
-    })
+	-- Get actual panel width after creation
+	panel_width = vim.api.nvim_win_get_width(M.panel.win_id)
+
+	vim.wo[M.panel.win_id].cursorline = false
+	vim.wo[M.panel.win_id].number = false
+	vim.wo[M.panel.win_id].relativenumber = false
+	vim.wo[M.panel.win_id].signcolumn = "no"
+	vim.wo[M.panel.win_id].wrap = false
+	vim.wo[M.panel.win_id].winfixwidth = true -- Prevent width from changing on layout resize
+
+	setup_keymaps(M.panel.buf_id, false)
+
+	M.panel.update_timer = (vim.uv or vim.loop).new_timer()
+	M.panel.update_timer:start(
+		200,
+		200,
+		vim.schedule_wrap(function()
+			if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
+				refresh_panel()
+			else
+				M.close_panel()
+			end
+		end)
+	)
+
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		buffer = M.panel.buf_id,
+		once = true,
+		callback = function()
+			if M.panel.update_timer then
+				pcall(function()
+					M.panel.update_timer:stop()
+					M.panel.update_timer:close()
+				end)
+			end
+			M.panel.update_timer = nil
+			M.panel.win_id = nil
+			M.panel.buf_id = nil
+		end,
+	})
 end
 
 function M.close_panel()
-    if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
-        vim.api.nvim_win_close(M.panel.win_id, true)
-    end
+	if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
+		vim.api.nvim_win_close(M.panel.win_id, true)
+	end
 end
 
 function M.toggle_panel()
-    if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then M.close_panel() else M.open_panel() end
+	if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
+		M.close_panel()
+	else
+		M.open_panel()
+	end
 end
 
 ---------- FLOAT ----------
 
 function M.open_float()
-    -- Setup highlights if enabled
-    if M.config.colors then
-        setup_highlights()
-    end
-    
-    if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
-        refresh_float()
-        vim.api.nvim_set_current_win(M.float.win_id)
-        return
-    end
+	-- Setup highlights if enabled
+	if M.config.colors then
+		setup_highlights()
+	end
 
-    local lines, highlights = build_lines(state_mod.get_current(), true)
-    local width, height = calc_width(lines), #lines
+	if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
+		refresh_float()
+		vim.api.nvim_set_current_win(M.float.win_id)
+		return
+	end
 
-    M.float.buf_id = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(M.float.buf_id, 0, -1, false, lines)
-    
-    if highlights and #highlights > 0 then
-        for _, hl_info in ipairs(highlights) do
-            pcall(vim.api.nvim_buf_add_highlight, M.float.buf_id, ns_id, hl_info.hl, hl_info.line, 0, -1)
-        end
-    end
-    
-    vim.bo[M.float.buf_id].modifiable = false
-    vim.bo[M.float.buf_id].bufhidden = "wipe"
-    vim.bo[M.float.buf_id].buftype = "nofile"
-    vim.bo[M.float.buf_id].filetype = "yt-player-player"
-    vim.bo[M.float.buf_id].swapfile = false
+	local lines, highlights = build_lines(state_mod.get_current(), true)
+	local width, height = calc_width(lines), #lines
 
-    M.float.win_id = vim.api.nvim_open_win(M.float.buf_id, true, {
-        relative = "editor",
-        row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
-        col = math.max(0, math.floor((vim.o.columns - width) / 2)),
-        width = width,
-        height = height,
-        style = "minimal",
-    })
+	M.float.buf_id = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(M.float.buf_id, 0, -1, false, lines)
 
-    vim.wo[M.float.win_id].cursorline = false
+	if highlights and #highlights > 0 then
+		for _, hl_info in ipairs(highlights) do
+			pcall(vim.api.nvim_buf_add_highlight, M.float.buf_id, ns_id, hl_info.hl, hl_info.line, 0, -1)
+		end
+	end
+	M.float.last_hash = table.concat(lines, "\n")
 
-    setup_keymaps(M.float.buf_id, true)
+	vim.bo[M.float.buf_id].modifiable = false
+	vim.bo[M.float.buf_id].bufhidden = "wipe"
+	vim.bo[M.float.buf_id].buftype = "nofile"
+	vim.bo[M.float.buf_id].filetype = "yt-player-player"
+	vim.bo[M.float.buf_id].swapfile = false
 
-    M.float.update_timer = (vim.uv or vim.loop).new_timer()
-    M.float.update_timer:start(1000, 1000, vim.schedule_wrap(function()
-        if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then refresh_float() else M.close_float() end
-    end))
+	M.float.win_id = vim.api.nvim_open_win(M.float.buf_id, true, {
+		relative = "editor",
+		row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+		col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+		width = width,
+		height = height,
+		style = "minimal",
+	})
 
-    vim.api.nvim_create_autocmd("BufWipeout", {
-        buffer = M.float.buf_id,
-        once = true,
-        callback = function()
-            if M.float.update_timer then
-                pcall(function()
-                    M.float.update_timer:stop(); M.float.update_timer:close()
-                end)
-            end
-            M.float.update_timer = nil
-            M.float.win_id = nil
-            M.float.buf_id = nil
-        end,
-    })
+	vim.wo[M.float.win_id].cursorline = false
+
+	setup_keymaps(M.float.buf_id, true)
+
+	M.float.update_timer = (vim.uv or vim.loop).new_timer()
+	M.float.update_timer:start(
+		1000,
+		1000,
+		vim.schedule_wrap(function()
+			if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
+				refresh_float()
+			else
+				M.close_float()
+			end
+		end)
+	)
+
+	vim.api.nvim_create_autocmd("BufWipeout", {
+		buffer = M.float.buf_id,
+		once = true,
+		callback = function()
+			if M.float.update_timer then
+				pcall(function()
+					M.float.update_timer:stop()
+					M.float.update_timer:close()
+				end)
+			end
+			M.float.update_timer = nil
+			M.float.win_id = nil
+			M.float.buf_id = nil
+		end,
+	})
 end
 
 function M.close_float()
-    if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
-        vim.api.nvim_win_close(M.float.win_id, true)
-    end
+	if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
+		vim.api.nvim_win_close(M.float.win_id, true)
+	end
 end
 
 function M.toggle_float()
-    if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then M.close_float() else M.open_float() end
+	if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
+		M.close_float()
+	else
+		M.open_float()
+	end
 end
 
 -- Toggle minimal mode (press M in player)
 function M.toggle_minimal()
-    M.minimal_mode = not M.minimal_mode
-    if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
-        refresh_panel()
-    end
-    if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
-        refresh_float()
-    end
-    return M.minimal_mode
+	M.minimal_mode = not M.minimal_mode
+	if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
+		refresh_panel()
+	end
+	if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
+		refresh_float()
+	end
+	return M.minimal_mode
 end
 
 -- Check if minimal mode is active
 function M.is_minimal()
-    return M.minimal_mode == true
+	return M.minimal_mode == true
 end
 
 return M

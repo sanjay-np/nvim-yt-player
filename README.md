@@ -85,19 +85,29 @@ All functionality is grouped under a single `:YT` command with auto-completion (
 | `:YT volume <0-100>` | Set volume |
 | `:YT vol_up` / `:YT vol_down` | Volume ±5 |
 | `:YT mute` | Toggle mute |
-| `:YT speed <rate>` | Set speed (0.25–3.0) |
-| `:YT speed_up` / `:YT speed_down` | Speed ±0.25 |
+| `:YT speed [arg]` | Set/adjust speed — see forms below |
 | `:YT shuffle` / `:YT repeat_toggle`| Shuffle / repeat |
 | `:YT player` | Toggle the player side-panel |
-| `:YT info` | Toggle the floating player window |
+| `:YT player float` | Toggle the floating player window |
 | `:YT history` | Browse play history |
 | `:YT history_clear` | Clear play history |
 | `:YT playlists` | Manage and play local custom playlists |
 | `:YT radio` | Toggle radio/autoplay mode |
 
+### Speed Command Forms
+
+| Invocation | Behaviour |
+|---|---|
+| `:YT speed` | Show current speed |
+| `:YT speed 1.5` | Set speed absolutely (0.25 – 3.0) |
+| `:YT speed up` | Increase by +0.25× |
+| `:YT speed down` | Decrease by −0.25× |
+| `:YT speed +0.5` | Increase by a custom delta |
+| `:YT speed -0.5` | Decrease by a custom delta |
+
 ## 🎛️ Player Windows
 
-`:YT player` (side-panel) and `:YT info` (floating window) share the same controls:
+`:YT player` (side-panel) and `:YT player float` (floating window) share the same controls:
 
 | Key | Action |
 |-----|--------|
@@ -155,7 +165,6 @@ require("yt-player").setup({
     seek_backward = "r",
     speed_up = ">",
     speed_down = "<",
-    info = "i",
   },
   
   sponsorblock = false, -- Set to true to automatically skip embedded sponsor segments
@@ -232,8 +241,8 @@ keymaps = {
 | | `L` / `H` | Seek ±30s |
 | **Volume** | `m` | Mute toggle |
 | | `+` / `-` | Volume ±5 |
-| **Speed** | `>` | Speed up |
-| | `<` | Speed down |
+| **Speed** | `>` | Speed +0.25 (`speed up`) |
+| | `<` | Speed −0.25 (`speed down`) |
 | **Mode** | `r` | Toggle radio mode |
 | **Exit** | `q` / `Esc` | Close player |
 
