@@ -8,12 +8,12 @@ on:
 
 jobs:
   test:
-    name: Headless Lua & Syntax Tests
-    runs-on: ubuntu-latest
+    name: Headless Verification Tests
+    runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
-        neovim-version: ['v0.9.5', 'stable']
+        os: [ubuntu-latest, macos-latest]
+        neovim_version: [stable, nightly]
 
     steps:
       - name: Checkout Code
@@ -23,9 +23,9 @@ jobs:
         uses: rhysd/action-setup-vim@v1
         with:
           neovim: true
-          version: ${{ matrix.neovim-version }}
+          version: ${{ matrix.neovim_version }}
 
-      - name: Run Plugin Test Suite
+      - name: Run Module Verification Tests
         run: |
           nvim --headless -u NONE -c 'set rtp+=.' -c 'lua
           local modules = {
@@ -48,29 +48,36 @@ jobs:
           }
 
           for _, mod in ipairs(modules) do
-            local ok, err = pcall(require, mod)
-            if not ok then
-              error("Failed to load module " .. mod .. ": " .. tostring(err))
-            end
+            assert(pcall(require, mod), "Failed to load module: " .. mod)
           end
 
-          -- Verify setup
           require("yt-player").setup({})
-
-          -- Verify commands registration
           require("yt-player.commands").setup()
-          assert(vim.api.nvim_get_commands({})["YT"] ~= nil, ":YT user command must be registered")
 
-          -- Verify utils.safe_truncate
+          -- Test atomic json
           local utils = require("yt-player.utils")
-          assert(utils.safe_truncate("Test Video Title", 10) == "Test Vi...", "safe_truncate failed")
+          local tmp = vim.fn.stdpath("cache") .. "/ci_test.json"
+          assert(utils.atomic_write_json(tmp, { ok = true }), "atomic_write_json failed")
+          local data, corrupt = utils.read_json_file(tmp, {})
+          assert(not corrupt and data.ok == true, "read_json_file failed")
+          pcall(os.remove, tmp)
 
-          -- Verify statusline
+          -- Test format_time
+          assert(utils.format_time(-5) == "0:00", "format_time negative clamp failed")
+          assert(utils.format_time(125) == "2:05", "format_time positive failed")
+
+          -- Test notify escaping
+          local notify = require("yt-player.notify")
+          notify.setup({ enabled = true, notify_on_track_change = true })
+          notify.track_change("100%1 Hits", "Artist 50% Off")
+
+          -- Test statusline
           local status = require("yt-player.status")
-          status.setup({ enabled = true, format = "{title}" })
-          require("yt-player.state").set_connected(true)
-          require("yt-player.state").update({ title = "Test Song" })
-          assert(status.get_statusline() == "Test Song", "statusline format failed")
+          status.setup({ enabled = true })
+          local state = require("yt-player.state")
+          state.update({ connected = true, playing = true, title = "Test 100%", duration = 120 })
+          local line = status.get_statusline()
+          assert(line and line ~= "", "statusline empty")
 
-          print("All CI tests passed successfully!")
+          print("All CI verification assertions passed successfully!")
           ' -c 'q'

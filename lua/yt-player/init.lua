@@ -106,7 +106,8 @@ end
 --- Append a track to the mpv queue (or start playback if mpv isn't running).
 --- Stores the title in playlist_meta so the queue UI can display it.
 ---@param item table { url: string, title: string, channel: string|nil }
-function M.queue(item)
+---@param silent boolean|nil
+function M.queue(item, silent)
 	if not item or not item.url or item.url == "" then
 		return
 	end
@@ -122,7 +123,9 @@ function M.queue(item)
 		mpv.load_url(item.url)
 	else
 		mpv.send_command({ "loadfile", item.url, "append-play" })
-		vim.notify("YT Control: Queued → " .. (item.title or item.url), vim.log.levels.INFO)
+		if not silent then
+			vim.notify("YT Control: Queued → " .. (item.title or item.url), vim.log.levels.INFO)
+		end
 	end
 end
 

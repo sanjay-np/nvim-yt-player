@@ -37,31 +37,13 @@ function M.save()
 		artist_map = state.artist_map or {},
 	}
 
-	local path = session_path()
-	utils.ensure_dir(path)
-	local f = io.open(path, "w")
-	if f then
-		f:write(vim.json.encode(data))
-		f:close()
-	end
+	utils.atomic_write_json(session_path(), data)
 end
 
 --- Restore playback session from disk
 function M.restore()
-	local f = io.open(session_path(), "r")
-	if not f then
-		vim.notify("YT Control: No saved session found", vim.log.levels.WARN)
-		return
-	end
-	local content = f:read("*a")
-	f:close()
-	if content == "" then
-		vim.notify("YT Control: No saved session found", vim.log.levels.WARN)
-		return
-	end
-
-	local ok, data = pcall(vim.json.decode, content)
-	if not ok or type(data) ~= "table" or not data.playlist or #data.playlist == 0 then
+	local data, is_corrupt = utils.read_json_file(session_path(), nil)
+	if is_corrupt or not data or type(data) ~= "table" or not data.playlist or #data.playlist == 0 then
 		vim.notify("YT Control: No saved session found", vim.log.levels.WARN)
 		return
 	end

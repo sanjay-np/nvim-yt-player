@@ -11,11 +11,40 @@ function M._register()
 		return require("yt-player")
 	end
 
+	local function parse_time_str(str)
+		if not str or str == "" then
+			return nil
+		end
+		local num = tonumber(str)
+		if num then
+			return num
+		end
+		local parts = {}
+		for p in string.gmatch(str, "[^:]+") do
+			local n = tonumber(p)
+			if not n then
+				return nil
+			end
+			table.insert(parts, n)
+		end
+		if #parts == 2 then
+			return parts[1] * 60 + parts[2]
+		elseif #parts == 3 then
+			return parts[1] * 3600 + parts[2] * 60 + parts[3]
+		end
+		return nil
+	end
+
 	local subcommands = {
 		play = {
 			impl = function(args)
-				if args and args ~= "" then
-					yt().load(args)
+				args = vim.trim(args or "")
+				if args ~= "" then
+					if args:match("^https?://") or args:match("^ytdl://") then
+						yt().load(args)
+					else
+						yt().load("ytdl://ytsearch:" .. args)
+					end
 				else
 					if not require("yt-player.mpv").is_running() then
 						vim.notify("YT Control: mpv is not running. Play a track/URL first.", vim.log.levels.WARN)
@@ -24,7 +53,7 @@ function M._register()
 					yt().command({ "set_property", "pause", false })
 				end
 			end,
-			desc = "Play URL/search or resume",
+			desc = "Play URL/search query or resume",
 			nargs = "?",
 		},
 		pause = {
@@ -71,14 +100,14 @@ function M._register()
 		},
 		seek = {
 			impl = function(args)
-				local s = tonumber(args)
+				local s = parse_time_str(vim.trim(args or ""))
 				if s then
 					yt().command({ "seek", s, "absolute" })
 				else
-					vim.notify("YT Control: Invalid seconds", vim.log.levels.ERROR)
+					vim.notify("YT Control: Invalid seconds or MM:SS format", vim.log.levels.ERROR)
 				end
 			end,
-			desc = "Seek to position (seconds)",
+			desc = "Seek to position (seconds or MM:SS)",
 			nargs = 1,
 			require_running = true,
 		},
@@ -333,7 +362,7 @@ function M._register()
 			if arg_idx <= 2 then
 				local matches = {}
 				for name, _ in pairs(subcommands) do
-					if name:lower():match("^" .. ArgLead:lower()) then
+					if vim.startswith(name:lower(), ArgLead:lower()) then
 						table.insert(matches, name)
 					end
 				end
@@ -369,7 +398,7 @@ function M._register()
 
 			local matches = {}
 			for _, item in ipairs(candidates) do
-				if item:lower():match("^" .. ArgLead:lower()) then
+				if vim.startswith(item:lower(), ArgLead:lower()) then
 					table.insert(matches, item)
 				end
 			end

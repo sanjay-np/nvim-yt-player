@@ -35,9 +35,15 @@ function M.track_change(title, artist)
 	local format = M.config.format or "▶ {title} - {artist}"
 	local icon = M.config.icon_playing or "▶"
 	local msg = format
-		:gsub("{title}", title or "Unknown")
-		:gsub("{artist}", artist or "")
-		:gsub("{icon}", icon)
+		:gsub("{title}", function()
+			return title or "Unknown"
+		end)
+		:gsub("{artist}", function()
+			return artist or ""
+		end)
+		:gsub("{icon}", function()
+			return icon
+		end)
 	M.info(msg)
 end
 

@@ -5,3 +5,4 @@
 if vim.g.yt_control_loaded then
 	return
 end
+vim.g.yt_control_loaded = true

@@ -6,7 +6,7 @@ local M = {}
 ---@param seconds number|nil
 ---@return string
 function M.format_time(seconds)
-	if not seconds or seconds == 0 or seconds ~= seconds then
+	if not seconds or seconds <= 0 or seconds ~= seconds then
 		return "0:00"
 	end
 	seconds = math.floor(seconds)
@@ -119,4 +119,70 @@ function M.ensure_dir(filepath)
 	end
 end
 
+---Atomically write JSON data to file using a temporary file and rename
+---@param filepath string
+---@param data any
+---@return boolean
+function M.atomic_write_json(filepath, data)
+	if not filepath or filepath == "" then
+		return false
+	end
+	M.ensure_dir(filepath)
+	local ok_json, json_str = pcall(vim.json.encode, data)
+	if not ok_json then
+		return false
+	end
+
+	local tmp_path = filepath .. ".tmp." .. vim.fn.getpid() .. "." .. math.random(100000, 999999)
+	local f = io.open(tmp_path, "w")
+	if not f then
+		return false
+	end
+	local ok_write = pcall(function()
+		f:write(json_str)
+		f:flush()
+		f:close()
+	end)
+	if not ok_write then
+		pcall(os.remove, tmp_path)
+		return false
+	end
+
+	local ok_rename = os.rename(tmp_path, filepath)
+	if not ok_rename then
+		local uv = vim.uv or vim.loop
+		local ok_uv = pcall(uv.fs_rename, tmp_path, filepath)
+		if not ok_uv then
+			pcall(os.remove, tmp_path)
+			return false
+		end
+	end
+	return true
+end
+
+---Safely read JSON data from file
+---@param filepath string
+---@param default_val any
+---@return any data, boolean is_corrupt
+function M.read_json_file(filepath, default_val)
+	if not filepath or filepath == "" or vim.fn.filereadable(filepath) == 0 then
+		return default_val, false
+	end
+	local f = io.open(filepath, "r")
+	if not f then
+		return default_val, false
+	end
+	local content = f:read("*a")
+	f:close()
+	if not content or content == "" then
+		return default_val, false
+	end
+	local ok, data = pcall(vim.json.decode, content)
+	if not ok or type(data) ~= type(default_val) then
+		return default_val, true
+	end
+	return data, false
+end
+
 return M
+

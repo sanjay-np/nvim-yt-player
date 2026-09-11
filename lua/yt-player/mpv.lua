@@ -27,28 +27,12 @@ local request_id_counter = 0
 M.request_map = {}
 
 local function read_registry()
-	local f = io.open(M.client_registry_path, "r")
-	if not f then
-		return {}
-	end
-	local content = f:read("*a")
-	f:close()
-	if content == "" then
-		return {}
-	end
-	local ok, data = pcall(vim.json.decode, content)
-	if not ok or type(data) ~= "table" then
-		return {}
-	end
-	return data
+	local data, _ = yt_utils.read_json_file(M.client_registry_path, {})
+	return type(data) == "table" and data or {}
 end
 
 local function write_registry(data)
-	local f = io.open(M.client_registry_path, "w")
-	if f then
-		f:write(vim.json.encode(data))
-		f:close()
-	end
+	yt_utils.atomic_write_json(M.client_registry_path, data)
 end
 
 local function cleanup_registry()
@@ -128,10 +112,8 @@ local segments = nil
 
 mp.register_event("file-loaded", function()
     segments = nil
-    local path = mp.get_property("path")
-    if not path then return end
-    local video_id = string.match(path, "v=([a-zA-Z0-9_-]{11})") or string.match(path, "youtu%.be/([a-zA-Z0-9_-]{11})")
-    if not video_id then return end
+    local video_id = string.match(path, "v=([%w_%-]+)") or string.match(path, "youtu%.be/([%w_%-]+)") or string.match(path, "embed/([%w_%-]+)") or string.match(path, "shorts/([%w_%-]+)")
+    if not video_id or #video_id ~= 11 then return end
 
     msg.info("Fetching SponsorBlock for " .. video_id)
     local url = "https://sponsor.ajay.app/api/skipSegments?videoID=" .. video_id .. "&categories=[\"sponsor\",\"intro\",\"outro\",\"interaction\",\"selfpromo\",\"music_offtopic\"]"
@@ -202,8 +184,11 @@ function M.start(url)
 		return false
 	end
 
-	-- Remove stale socket file from previous crashed sessions
-	vim.fn.delete(M.ipc_socket_path)
+	-- Remove stale socket file only if no active clients are running
+	local active_clients = cleanup_registry()
+	if #active_clients == 0 then
+		vim.fn.delete(M.ipc_socket_path)
+	end
 
 	local cmd = {
 		"mpv",
@@ -315,6 +300,11 @@ function M._connect_ipc_with_retry(attempt)
 					vim.schedule(function()
 						if M.shutting_down then
 							return
+						end
+						if M.mpv_job_id ~= nil then
+							local id = M.mpv_job_id
+							M.mpv_job_id = nil
+							pcall(vim.fn.jobstop, id)
 						end
 						M._cleanup_ipc()
 						vim.fn.delete(M.ipc_socket_path)
@@ -483,11 +473,11 @@ function M._handle_ipc_message(line)
 	if msg.event == "property-change" then
 		prop_name = msg.name
 		prop_data = msg.data
-	elseif msg.error == "success" and msg.data ~= nil and msg.request_id then
+	elseif msg.request_id then
 		prop_name = M.request_map[msg.request_id]
-		if prop_name then
+		M.request_map[msg.request_id] = nil
+		if msg.error == "success" and msg.data ~= nil then
 			prop_data = msg.data
-			M.request_map[msg.request_id] = nil
 		end
 	end
 
@@ -503,21 +493,46 @@ function M._handle_ipc_message(line)
 			state_mod.update({ [mapping.key] = prop_data or mapping.default })
 		end
 
+		-- Backfill duration in history once resolved by yt-dlp
+		if prop_name == "duration" and type(prop_data) == "number" and prop_data > 0 then
+			local active_url = M.current_url or ""
+			local current = state_mod.get_current()
+			if current.playlist and current.playlist_pos then
+				local active_item = current.playlist[current.playlist_pos + 1]
+				if active_item and active_item.filename and active_item.filename ~= "" then
+					active_url = active_item.filename
+				end
+			end
+			if active_url ~= "" then
+				pcall(function()
+					require("yt-player.history").update_duration(active_url, prop_data)
+				end)
+			end
+		end
+
 		-- Record to play history when a new track starts
 		if prop_name == "media-title" and prop_data and prop_data ~= "" then
 			local current = state_mod.get_current()
+			local active_url = M.current_url or ""
+			if current.playlist and current.playlist_pos then
+				local active_item = current.playlist[current.playlist_pos + 1]
+				if active_item and active_item.filename and active_item.filename ~= "" then
+					active_url = active_item.filename
+					M.current_url = active_url
+				end
+			end
+
 			pcall(function()
 				require("yt-player.history").add({
 					title = prop_data,
-					url = M.current_url or "",
+					url = active_url,
 					duration = current.duration or 0,
 				})
 			end)
 			-- Populate artist from artist_map (set by search/radio/queue)
-			local url = M.current_url or ""
 			local artist_map = state_mod.current.artist_map or {}
-			if url ~= "" and artist_map[url] then
-				state_mod.update({ artist = artist_map[url] })
+			if active_url ~= "" and artist_map[active_url] then
+				state_mod.update({ artist = artist_map[active_url] })
 			end
 		end
 

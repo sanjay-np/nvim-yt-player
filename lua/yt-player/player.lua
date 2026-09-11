@@ -443,14 +443,14 @@ local function build_lines(state, is_float)
 	end
 
 	-- Layer 2: Playback status + progress (multi-colored)
-	local bar_width = width - 22
+	local bar_width = math.max(4, width - 22)
 	local prog_bar, filled = progress_bar(state.position, state.duration, bar_width)
 	local filled_count = math.max(1, math.min(bar_width, filled + 1))
 	add_progress_row(pos_str, prog_bar, dur_str, filled_count, bar_width)
 
 	-- Layer 3: Volume + Speed (multi-colored)
 	local vol_icon = (state.muted or vol == 0) and "🔇" or (vol > 50 and "🔊" or "🔉")
-	local vol_bars = math.floor(vol / 10)
+	local vol_bars = math.max(0, math.min(10, math.floor(vol / 10)))
 	local vol_gauge = string.rep("▰", vol_bars) .. string.rep("▱", 10 - vol_bars)
 	add_volume_row(vol_icon, vol_gauge, vol, speed_str, vol_bars)
 

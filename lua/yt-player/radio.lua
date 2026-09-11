@@ -5,8 +5,7 @@ local uv = vim.uv or vim.loop
 
 M.is_fetching = false
 M.active_handle = nil
-M.last_failed_video_id = nil
-M.last_failed_time = 0
+M.failed_video_ids = {}
 M.cooldown_seconds = 60
 
 --- Cancel any active recommendation fetch job
@@ -20,8 +19,7 @@ function M.cancel()
 		end)
 		M.active_handle = nil
 	end
-	M.last_failed_video_id = nil
-	M.last_failed_time = 0
+	M.failed_video_ids = {}
 	local state_mod = require("yt-player.state")
 	local state = state_mod.get_current()
 	state.radio_fetching = false
@@ -34,8 +32,7 @@ function M.toggle()
 	state.radio_enabled = not state.radio_enabled
 
 	if state.radio_enabled then
-		M.last_failed_video_id = nil
-		M.last_failed_time = 0
+		M.failed_video_ids = {}
 		vim.notify("YT Control: 📻 Autoplay Radio: ON", vim.log.levels.INFO)
 		M.check_and_trigger()
 	else
@@ -213,7 +210,8 @@ function M.check_and_trigger()
 	end
 
 	local now = os.time()
-	if M.last_failed_video_id == video_id and (now - M.last_failed_time) < (M.cooldown_seconds or 60) then
+	local last_fail = M.failed_video_ids[video_id] or 0
+	if (now - last_fail) < (M.cooldown_seconds or 60) then
 		return
 	end
 
@@ -237,15 +235,13 @@ function M.check_and_trigger()
 		end
 
 		if err then
-			M.last_failed_video_id = video_id
-			M.last_failed_time = os.time()
+			M.failed_video_ids[video_id] = os.time()
 			vim.notify("YT Radio: Error - " .. err, vim.log.levels.WARN)
 			return
 		end
 
 		if #tracks == 0 then
-			M.last_failed_video_id = video_id
-			M.last_failed_time = os.time()
+			M.failed_video_ids[video_id] = os.time()
 			return
 		end
 
@@ -287,13 +283,11 @@ function M.check_and_trigger()
 		end
 
 		if added_count > 0 then
-			M.last_failed_video_id = nil
-			M.last_failed_time = 0
+			M.failed_video_ids[video_id] = nil
 			vim.notify(string.format("YT Radio: Queued %d recommended track(s)", added_count), vim.log.levels.INFO)
 		else
 			-- No new unique tracks were found to add; record failure cooldown to prevent loop
-			M.last_failed_video_id = video_id
-			M.last_failed_time = os.time()
+			M.failed_video_ids[video_id] = os.time()
 		end
 	end)
 end

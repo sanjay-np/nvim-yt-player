@@ -65,8 +65,8 @@ function M.get_statusline()
 	local icon = state.playing and (M.config.icon_playing or "▶") or (M.config.icon_paused or "⏸")
 	local title = state.title or "Unknown"
 	local trunc_limit = M.config.truncate_title or 30
-	if trunc_limit and #title > trunc_limit then
-		title = title:sub(1, trunc_limit - 3) .. "..."
+	if trunc_limit and trunc_limit > 0 then
+		title = utils.safe_truncate(title, trunc_limit)
 	end
 
 	local speed = (state.speed and state.speed ~= 1) and string.format("%.2gx", state.speed) or ""
@@ -86,7 +86,9 @@ function M.get_statusline()
 	}
 
 	local format_str = M.config.format or "{icon} {title}"
-	local result = format_str:gsub("{([%w_]+)}", tokens)
+	local result = format_str:gsub("{([%w_]+)}", function(key)
+		return tokens[key] or ""
+	end)
 
 	cached_line = result
 	cached_hash = h

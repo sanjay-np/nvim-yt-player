@@ -1215,6 +1215,16 @@ function M.interactive_picker(initial_query)
 		vim.cmd("startinsert!")
 	end
 
+	-- Lock buffer when leaving insert mode
+	vim.api.nvim_create_autocmd("InsertLeave", {
+		buffer = buf,
+		callback = function()
+			if vim.api.nvim_buf_is_valid(buf) then
+				vim.bo[buf].modifiable = false
+			end
+		end,
+	})
+
 	-- Cleanup on close
 	vim.api.nvim_create_autocmd("BufWipeout", {
 		buffer = buf,

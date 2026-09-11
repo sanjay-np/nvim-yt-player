@@ -40,10 +40,11 @@ local function render_queue()
 	else
 		for i, item in ipairs(plist) do
 			local prefix = (i - 1 == state.playlist_pos) and " ▶ " or "   "
-			local title = item.title
+			local raw_title = item.title
 				or (state.playlist_meta and state.playlist_meta[item.filename])
 				or item.filename
 				or "Unknown"
+			local title = tostring(raw_title):gsub("[\n\r\t]", " ")
 			table.insert(lines, string.format("%s%d. %s", prefix, i, title))
 		end
 	end

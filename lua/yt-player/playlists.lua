@@ -10,31 +10,16 @@ end
 --- Read all playlists
 ---@return table { [playlist_name] = { {title, url, duration}, ... } }
 function M.get_all()
-	local f = io.open(get_path(), "r")
-	if not f then
-		return {}
-	end
-	local content = f:read("*a")
-	f:close()
-	if content == "" then
-		return {}
-	end
-	local ok, data = pcall(vim.json.decode, content)
-	if not ok or type(data) ~= "table" then
-		return {}
+	local data, is_corrupt = utils.read_json_file(get_path(), {})
+	if is_corrupt then
+		vim.notify("YT Control: Warning - playlists file corrupted, preserving existing data", vim.log.levels.WARN)
 	end
 	return data
 end
 
 --- Write playlists to disk
 local function save(data)
-	local path = get_path()
-	utils.ensure_dir(path)
-	local f = io.open(path, "w")
-	if f then
-		f:write(vim.json.encode(data))
-		f:close()
-	end
+	utils.atomic_write_json(get_path(), data)
 end
 
 --- Save a track to a playlist
@@ -384,7 +369,7 @@ function M.open_manager()
 			if i == 1 and action_type == "play" then
 				yt.load(t.url)
 			else
-				yt.queue(t)
+				yt.queue(t, true)
 			end
 		end
 		vim.notify("YT Control: Queued playlist '" .. pl_name .. "'", vim.log.levels.INFO)

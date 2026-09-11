@@ -12,18 +12,9 @@ end
 --- Read history from disk
 ---@return table[]
 function M.get()
-	local f = io.open(history_path(), "r")
-	if not f then
-		return {}
-	end
-	local content = f:read("*a")
-	f:close()
-	if content == "" then
-		return {}
-	end
-	local ok, data = pcall(vim.json.decode, content)
-	if not ok or type(data) ~= "table" then
-		return {}
+	local data, is_corrupt = utils.read_json_file(history_path(), {})
+	if is_corrupt then
+		vim.notify("YT Control: Warning - history file corrupted, preserving existing data", vim.log.levels.WARN)
 	end
 	return data
 end
@@ -31,13 +22,7 @@ end
 --- Write history to disk
 ---@param data table[]
 local function save(data)
-	local path = history_path()
-	utils.ensure_dir(path)
-	local f = io.open(path, "w")
-	if f then
-		f:write(vim.json.encode(data))
-		f:close()
-	end
+	utils.atomic_write_json(history_path(), data)
 end
 
 --- Add a track to history (newest first, deduplicated by URL)
@@ -73,6 +58,27 @@ function M.add(entry)
 	save(filtered)
 end
 
+--- Update duration for an existing history entry if it was 0
+---@param url string
+---@param duration number
+function M.update_duration(url, duration)
+	if not url or url == "" or not duration or duration <= 0 then
+		return
+	end
+	local history = M.get()
+	local updated = false
+	for _, item in ipairs(history) do
+		if item.url == url and (not item.duration or item.duration == 0) then
+			item.duration = duration
+			updated = true
+			break
+		end
+	end
+	if updated then
+		save(history)
+	end
+end
+
 --- Clear all history
 function M.clear()
 	save({})
@@ -81,8 +87,13 @@ end
 
 --- Format a relative time string
 local function relative_time(ts)
+	if not ts or type(ts) ~= "number" then
+		return "recently"
+	end
 	local diff = os.time() - ts
-	if diff < 60 then
+	if diff < 0 then
+		return "just now"
+	elseif diff < 60 then
 		return "just now"
 	elseif diff < 3600 then
 		return math.floor(diff / 60) .. "m ago"
@@ -124,7 +135,8 @@ function M.open_picker()
 	-- Build display lines
 	local lines = { " Recently Played", "" }
 	for i, item in ipairs(history) do
-		table.insert(lines, string.format(" %d. %s", i, item.title))
+		local clean_title = tostring(item.title or "Unknown"):gsub("[\n\r\t]", " ")
+		table.insert(lines, string.format(" %d. %s", i, clean_title))
 		table.insert(
 			lines,
 			string.format("    ⏱ %s  •  %s", utils.format_duration(item.duration), relative_time(item.timestamp))
