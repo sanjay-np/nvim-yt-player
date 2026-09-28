@@ -51,10 +51,11 @@ M.config = {
 	},
 
 	youtube = {
-		-- yt-dlp player clients used by mpv's ytdl_hook to resolve streams.
-		-- YouTube currently 403-blocks stream URLs resolved via its default
-		-- clients (ANDROID_VR/MWEB/WEB); "android,tv_simply" are verified working.
-		player_client = "android,tv_simply",
+		-- Optional yt-dlp player client override for mpv's ytdl_hook.
+		-- Leave empty ("") to let yt-dlp pick its own default clients, which is
+		-- the most reliable option. Pinning clients (e.g. "android,tv_simply")
+		-- tends to break whenever YouTube changes its player endpoints.
+		player_client = "",
 	},
 
 	sponsorblock = false, -- Set to true to enable auto-skipping
