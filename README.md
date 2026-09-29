@@ -237,11 +237,11 @@ require("yt-player").setup({
   },
   
   youtube = {
-    -- yt-dlp player clients used by mpv's ytdl_hook to resolve streams.
-    -- YouTube currently 403-blocks stream URLs resolved via its default
-    -- clients (ANDROID_VR/MWEB/WEB), causing tracks to skip instantly with
-    -- no audio. Verified working: "android", "tv_simply", "web_music".
-    player_client = "android,tv_simply",
+    -- Optional yt-dlp player client override for mpv's ytdl_hook.
+    -- Leave empty ("") to let yt-dlp pick its own default clients, which is
+    -- the most reliable option. Pinning a client (e.g. "android,tv_simply")
+    -- tends to break whenever YouTube changes its player endpoints.
+    player_client = "",
   },
   
   sponsorblock = false, -- set to true to automatically skip YouTube sponsor segments
@@ -326,12 +326,18 @@ The plugin spawns a headless, detached background `mpv` process with IPC enabled
 
 ## 🔧 Troubleshooting
 
-- **Tracks skip instantly with no audio?** YouTube is 403-blocking the direct stream URLs resolved by yt-dlp's default player clients (`ANDROID_VR`/`MWEB`/`WEB`). This plugin forces working clients via `youtube.player_client` (default `android,tv_simply`). If playback breaks again, switch to another verified-working client:
-  ```lua
-  require("yt-player").setup({
-    youtube = { player_client = "web_music" }, -- or "android", "tv_simply"
-  })
-  ```
+- **Tracks skip instantly with no audio?** This is usually one of two things:
+  1. **A pinned yt-dlp player client that YouTube no longer supports.** Pinning a client such as `android,tv_simply` can make yt-dlp return no usable formats, so every track fails instantly. The plugin no longer pins one by default; if you set `youtube.player_client`, clear it:
+     ```lua
+     require("yt-player").setup({
+       youtube = { player_client = "" }, -- let yt-dlp choose
+     })
+     ```
+  2. **Browser cookies forwarded to yt-dlp by your mpv config.** If your `mpv.conf` contains
+     ```
+     ytdl-raw-options-add=cookies-from-browser=brave
+     ```
+     yt-dlp resolves streams through a cookie-authenticated client, and the resulting `googlevideo.com` URLs are rejected with `HTTP 403` when mpv/ffmpeg fetches them (even though `yt-dlp` can download the same URL). Remove that line unless you specifically need signed-in content.
 - **No Audio?** Check that both `mpv` and `yt-dlp` are functioning correctly on your system by playing a URL directly:
   ```bash
   mpv --no-video "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
