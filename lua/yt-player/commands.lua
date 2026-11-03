@@ -230,9 +230,9 @@ function M._register()
 		},
 		search = {
 			impl = function(args)
-				require("yt-player.search").interactive_picker(args)
+				require("yt-player.ui.hub").open(2, args)
 			end,
-			desc = "Search YouTube",
+			desc = "Search YouTube inside the Hub",
 			nargs = "?",
 		},
 		queue = {
@@ -260,9 +260,9 @@ function M._register()
 		},
 		queue_edit = {
 			impl = function()
-				require("yt-player.queue").open()
+				require("yt-player.ui.hub").open(3)
 			end,
-			desc = "Interactive Queue Management",
+			desc = "Interactive Queue Management inside the Hub",
 		},
 		queue_playlist = {
 			impl = function(args)
@@ -277,9 +277,9 @@ function M._register()
 		},
 		history = {
 			impl = function()
-				require("yt-player.history").open_picker()
+				require("yt-player.ui.hub").open(5)
 			end,
-			desc = "Browse play history",
+			desc = "Browse play history inside the Hub",
 		},
 		history_clear = {
 			impl = function()
@@ -289,9 +289,9 @@ function M._register()
 		},
 		playlists = {
 			impl = function()
-				require("yt-player.playlists").open_manager()
+				require("yt-player.ui.hub").open(4)
 			end,
-			desc = "Manage local playlists",
+			desc = "Manage local playlists inside the Hub",
 		},
 		radio = {
 			impl = function(args)
@@ -330,7 +330,7 @@ function M._register()
 		local subcmd_args = delim and vim.trim(args_str:sub(delim + 1)) or ""
 
 		if subcmd_name == "" then
-			vim.notify("YT Control: Requires a subcommand. Type :YT and press Tab to see options.", vim.log.levels.WARN)
+			require("yt-player.ui.hub").toggle()
 			return
 		end
 

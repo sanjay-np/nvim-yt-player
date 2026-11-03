@@ -184,5 +184,176 @@ function M.read_json_file(filepath, default_val)
 	return data, false
 end
 
+---Extract YouTube 11-char Video ID from any standard or shortened URL
+---@param url string|nil
+---@return string|nil
+function M.extract_video_id(url)
+	if not url or type(url) ~= "string" then
+		return nil
+	end
+	local id = string.match(url, "v=([%w_%-]+)")
+		or string.match(url, "youtu%.be/([%w_%-]+)")
+		or string.match(url, "embed/([%w_%-]+)")
+		or string.match(url, "shorts/([%w_%-]+)")
+		or string.match(url, "ytdl://([%w_%-]+)")
+	if id and #id == 11 then
+		return id
+	end
+	return nil
+end
+
+local title_cache = {}
+local resolving_titles = {}
+
+---Resolve a clean, human-readable title for a playlist item or URL
+---Eliminates raw YouTube links by checking metadata, history, playlists, or querying yt-dlp in the background
+---@param item table|string { title, filename, url }
+---@param state table|nil
+---@return string title
+function M.resolve_title(item, state)
+	local raw_title = nil
+	local url = nil
+
+	if type(item) == "table" then
+		raw_title = item.title
+		url = item.filename or item.url
+	elseif type(item) == "string" then
+		url = item
+	end
+
+	-- If raw_title is present and is not a URL, return it
+	if raw_title and raw_title ~= ""
+		and not raw_title:match("^https?://")
+		and not raw_title:match("^ytdl://")
+		and not raw_title:match("^watch%?v=") then
+		return tostring(raw_title):gsub("[\n\r\t]", " ")
+	end
+
+	if not url or url == "" then
+		return "Unknown Track"
+	end
+
+	-- Check title_cache
+	if title_cache[url] then
+		return title_cache[url]
+	end
+
+	state = state or require("yt-player.state").get_current()
+
+	local function extract_clean_text(val)
+		if not val then
+			return nil
+		end
+		local s = val
+		if type(val) == "table" then
+			s = val.title or val.name
+		end
+		if type(s) == "string" and s ~= "" and not s:match("^https?://") then
+			return s
+		end
+		return nil
+	end
+
+	-- Check state.playlist_meta
+	if state and state.playlist_meta and state.playlist_meta[url] then
+		local meta_t = extract_clean_text(state.playlist_meta[url])
+		if meta_t then
+			title_cache[url] = meta_t
+			return meta_t
+		end
+	end
+
+	-- Check by 11-char video ID across metadata, history, and playlists
+	local vid_id = M.extract_video_id(url)
+	if vid_id then
+		if title_cache[vid_id] then
+			return title_cache[vid_id]
+		end
+
+		if state and state.playlist_meta then
+			for k, v in pairs(state.playlist_meta) do
+				local clean = extract_clean_text(v)
+				if clean and type(k) == "string" and k:find(vid_id, 1, true) then
+					title_cache[url] = clean
+					title_cache[vid_id] = clean
+					return clean
+				end
+			end
+		end
+
+		local ok_h, hist_mod = pcall(require, "yt-player.history")
+		if ok_h and hist_mod.get then
+			local history = hist_mod.get() or {}
+			for _, h in ipairs(history) do
+				local clean = extract_clean_text(h.title)
+				if clean and h.url and h.url:find(vid_id, 1, true) then
+					title_cache[url] = clean
+					title_cache[vid_id] = clean
+					return clean
+				end
+			end
+		end
+
+		local ok_p, pl_mod = pcall(require, "yt-player.playlists")
+		if ok_p and pl_mod.get_all then
+			local lists = pl_mod.get_all() or {}
+			for _, list in pairs(lists) do
+				for _, tr in ipairs(list) do
+					local clean = extract_clean_text(tr.title)
+					if clean and tr.url and tr.url:find(vid_id, 1, true) then
+						title_cache[url] = clean
+						title_cache[vid_id] = clean
+						return clean
+					end
+				end
+			end
+		end
+
+		-- Asynchronously fetch title using yt-dlp if not yet resolving
+		if not resolving_titles[vid_id] and vim.fn.executable("yt-dlp") == 1 then
+			resolving_titles[vid_id] = true
+			local uv = vim.uv or vim.loop
+			local stdout = uv.new_pipe(false)
+			local args = { "yt-dlp", "--no-warnings", "--skip-download", "--print", "title", "https://www.youtube.com/watch?v=" .. vid_id }
+			local handle
+			handle = uv.spawn(args[1], {
+				args = vim.list_slice(args, 2),
+				stdio = { nil, stdout, nil },
+			}, function()
+				if stdout then pcall(function() stdout:read_stop(); stdout:close() end) end
+				if handle then pcall(function() handle:close() end) end
+				resolving_titles[vid_id] = nil
+			end)
+			if handle and stdout then
+				local out = ""
+				stdout:read_start(function(_, data)
+					if data then
+						out = out .. data
+						local t = vim.trim(out:gsub("[\r\n]", ""))
+						if t ~= "" and not t:match("^https?://") then
+							title_cache[url] = t
+							title_cache[vid_id] = t
+							if state and state.playlist_meta then
+								state.playlist_meta[url] = t
+							end
+							vim.schedule(function()
+								local ok_hub, hub = pcall(require, "yt-player.ui.hub")
+								if ok_hub and hub.win_id and vim.api.nvim_win_is_valid(hub.win_id) then
+									hub.refresh()
+								end
+							end)
+						end
+					end
+				end)
+			end
+		end
+
+		return "YouTube Track [" .. vid_id .. "]"
+	end
+
+	local clean = url:gsub("^https?://[^/]+/", ""):gsub("^watch%?", "")
+	return clean ~= "" and clean or url
+end
+
 return M
 

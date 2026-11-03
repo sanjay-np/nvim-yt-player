@@ -1,7 +1,10 @@
----@mod yt-player.history Persistent play history
+---@mod yt-player.history Persistent play history and modern picker
 local M = {}
 
 local utils = require("yt-player.utils")
+local theme = require("yt-player.ui.theme")
+local window = require("yt-player.ui.window")
+local state_mod = require("yt-player.state")
 
 local MAX_ENTRIES = 100
 
@@ -26,7 +29,7 @@ local function save(data)
 end
 
 --- Add a track to history (newest first, deduplicated by URL)
----@param entry table {title, url, duration?}
+---@param entry table {title, url, duration?, channel?}
 function M.add(entry)
 	if not entry or not entry.url or entry.url == "" then
 		return
@@ -47,6 +50,7 @@ function M.add(entry)
 		title = entry.title or "Unknown",
 		url = entry.url,
 		duration = entry.duration or 0,
+		channel = entry.channel or "",
 		timestamp = os.time(),
 	})
 
@@ -104,160 +108,146 @@ local function relative_time(ts)
 	end
 end
 
---- Open an interactive history picker
+local HEADER_OFFSET = 2
+
+--- Open the modern history picker
 function M.open_picker()
 	local history = M.get()
 	if #history == 0 then
-		vim.notify("YT Control: No history yet", vim.log.levels.INFO)
+		vim.notify("YT Control: No play history yet", vim.log.levels.INFO)
 		return
 	end
 
-	local buf = vim.api.nvim_create_buf(false, true)
 	local width = math.floor(vim.o.columns * 0.7)
-	local height = math.min(math.floor(vim.o.lines * 0.8), #history * 3 + 3)
-	local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
-	local col = math.max(0, math.floor((vim.o.columns - width) / 2))
+	local height = math.min(math.floor(vim.o.lines * 0.75), math.max(10, #history + 4))
 
-	local win = vim.api.nvim_open_win(buf, true, {
-		relative = "editor",
-		row = row,
-		col = col,
+	local win_info = window.open_float({
 		width = width,
 		height = height,
-		style = "minimal",
-		border = "rounded",
-		title = " 🕐 Play History ",
-		title_pos = "center",
+		position = "center",
+		title = string.format(" %s Play History (%d tracks) ", theme.icon("history"), #history),
+		footer = " [↵] Play  [a] Queue  [s] Save to Playlist  [c] Clear  [q] Close ",
+		cursorline = true,
+		enter = true,
 	})
 
-	vim.wo[win].cursorline = true
+	local win = win_info.win
+	local buf = win_info.buf
 
-	-- Build display lines
-	local lines = { " Recently Played", "" }
-	for i, item in ipairs(history) do
-		local clean_title = tostring(item.title or "Unknown"):gsub("[\n\r\t]", " ")
-		table.insert(lines, string.format(" %d. %s", i, clean_title))
-		table.insert(
-			lines,
-			string.format("    ⏱ %s  •  %s", utils.format_duration(item.duration), relative_time(item.timestamp))
-		)
-		table.insert(lines, "")
-	end
-	if #lines > 2 then
-		table.remove(lines)
-	end -- remove trailing spacer
+	local function render()
+		history = M.get()
+		local current_state = state_mod.get_current()
+		local cur_pos = current_state.playlist_pos
+		local cur_filename = (current_state.playlist and cur_pos and current_state.playlist[cur_pos + 1])
+			and current_state.playlist[cur_pos + 1].filename or nil
 
-	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-	vim.bo[buf].modifiable = false
-	vim.bo[buf].bufhidden = "wipe"
-	vim.bo[buf].buftype = "nofile"
+		local lines = {}
+		local hls = {}
 
-	-- Highlight header
-	local ns = vim.api.nvim_create_namespace("yt_history")
-	vim.api.nvim_buf_add_highlight(buf, ns, "Title", 0, 0, -1)
+		-- Header line
+		local hdr = string.format("   %-4s %-10s %s", "#", "STATUS", "TITLE")
+		table.insert(lines, hdr)
+		table.insert(hls, {
+			line = 0,
+			hl = "YtPlayerAccent",
+			virt_text = { { "TIME  •  DURATION   ", "YtPlayerAccent" } },
+			virt_text_pos = "right_align",
+		})
 
-	-- Highlight currently playing track
-	pcall(vim.api.nvim_set_hl, 0, "YTHistoryCurrent", {
-		fg = "#50fa7b",
-		ctermfg = 84,
-		bold = true,
-		cterm = { bold = true },
-	})
-	local state = require("yt-player.state").get_current()
-	if state.playlist_pos and state.playlist and state.playlist[state.playlist_pos + 1] then
-		local playing_url = state.playlist[state.playlist_pos + 1].filename
-		if playing_url then
-			for i, item in ipairs(history) do
-				if item.url == playing_url then
-					local title_line = (i - 1) * 3 + 2
-					if title_line < #lines then
-						pcall(vim.api.nvim_buf_add_highlight, buf, ns, "YTHistoryCurrent", title_line, 0, -1)
-					end
-					break
-				end
+		-- Separator
+		local sep = string.rep("─", width - 4)
+		table.insert(lines, "  " .. sep)
+		table.insert(hls, { line = 1, hl = "YtPlayerSeparator", col_start = 0, col_end = -1 })
+
+		for i, item in ipairs(history) do
+			local is_playing = cur_filename and (item.url == cur_filename)
+			local status_icon = is_playing and (theme.icon("playing") .. " PLAYING") or "         "
+			local num_str = string.format("%2d.", i)
+			local clean_title = utils.safe_truncate(item.title or "Unknown", width - 36)
+
+			local dur_str = (item.duration and item.duration > 0) and utils.format_time(item.duration) or "--:--"
+			local rel_str = relative_time(item.timestamp)
+
+			local row = string.format("   %-4s %-10s %s", num_str, status_icon, clean_title)
+			table.insert(lines, row)
+
+			local line_idx = #lines - 1
+			if is_playing then
+				table.insert(hls, { line = line_idx, hl = "YtPlayerPlaying", col_start = 0, col_end = -1 })
+			else
+				table.insert(hls, { line = line_idx, hl = "YtPlayerText", col_start = 0, col_end = -1 })
+				table.insert(hls, { line = line_idx, hl = "YtPlayerIndex", col_start = 3, col_end = 8 })
 			end
+
+			local badge_text = string.format("%s  •  %s   ", rel_str, dur_str)
+			table.insert(hls, {
+				line = line_idx,
+				virt_text = { { badge_text, is_playing and "YtPlayerPlaying" or "YtPlayerMuted" } },
+				virt_text_pos = "right_align",
+			})
 		end
+
+		window.render(buf, lines, hls)
 	end
 
-	vim.api.nvim_win_set_cursor(win, { 3, 0 })
+	render()
 
-	-- Helpers
+	local o = { buffer = buf, silent = true, noremap = true }
+
+	local function close()
+		window.safe_close(win, buf)
+	end
+
+	vim.keymap.set("n", "q", close, o)
+	vim.keymap.set("n", "<Esc>", close, o)
+
 	local function get_current_item()
 		local r = vim.api.nvim_win_get_cursor(win)[1]
-		if r < 3 or #history == 0 then
+		local idx = r - HEADER_OFFSET
+		if idx < 1 or idx > #history then
 			return nil
 		end
-		local idx = math.floor((r - 3) / 3) + 1
 		return history[idx]
 	end
 
-	local function jump(dir)
-		if #history == 0 then
-			return
-		end
-		local r = vim.api.nvim_win_get_cursor(win)[1]
-		if r < 3 then
-			vim.api.nvim_win_set_cursor(win, { 3, 0 })
-			return
-		end
-		local current_idx = math.floor((r - 3) / 3)
-		local target_idx = math.max(0, math.min(#history - 1, current_idx + dir))
-		vim.api.nvim_win_set_cursor(win, { 3 + (target_idx * 3), 0 })
-	end
-
-	local opts = { buffer = buf, silent = true }
-
-	-- Play on Enter
+	-- Play track
 	vim.keymap.set("n", "<CR>", function()
 		local item = get_current_item()
 		if item then
 			require("yt-player").load(item.url)
-			vim.api.nvim_win_close(win, true)
-			vim.notify("YT Control: Playing → " .. item.title, vim.log.levels.INFO)
+			vim.defer_fn(render, 200)
 		end
-	end, opts)
+	end, o)
 
-	-- Queue on 'a'
-	local function queue_item()
+	-- Queue track
+	vim.keymap.set("n", "a", function()
 		local item = get_current_item()
 		if item then
 			require("yt-player").queue(item)
 		end
-	end
+	end, o)
 
-	vim.keymap.set("n", "a", queue_item, opts)
-	vim.keymap.set("n", "A", queue_item, opts)
-	vim.keymap.set("n", "<C-a>", queue_item, opts)
-
-	-- Save (s)
+	-- Save to playlist
 	vim.keymap.set("n", "s", function()
 		local item = get_current_item()
 		if item then
 			require("yt-player.playlists").prompt_save(item)
 		end
-	end, opts)
+	end, o)
 
-	-- Navigation
-	vim.keymap.set("n", "j", function()
-		jump(1)
-	end, opts)
-	vim.keymap.set("n", "k", function()
-		jump(-1)
-	end, opts)
-	vim.keymap.set("n", "<Tab>", function()
-		jump(1)
-	end, opts)
-	vim.keymap.set("n", "<S-Tab>", function()
-		jump(-1)
-	end, opts)
+	-- Clear history
+	vim.keymap.set("n", "c", function()
+		vim.ui.select({ "No, Keep History", "Yes, Clear All History" }, {
+			prompt = "Are you sure you want to clear your play history?",
+		}, function(choice)
+			if choice == "Yes, Clear All History" then
+				M.clear()
+				close()
+			end
+		end)
+	end, o)
 
-	-- Close
-	vim.keymap.set("n", "q", function()
-		vim.api.nvim_win_close(win, true)
-	end, opts)
-	vim.keymap.set("n", "<Esc>", function()
-		vim.api.nvim_win_close(win, true)
-	end, opts)
+	pcall(vim.api.nvim_win_set_cursor, win, { HEADER_OFFSET + 1, 0 })
 end
 
 return M

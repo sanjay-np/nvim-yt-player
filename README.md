@@ -15,19 +15,18 @@
 
 ---
 
-```
-╭─────────────────────────────── Now Playing ───────────────────────────────╮
-│  ♫  Lofi Hip Hop Radio - Beats to Relax/Study to                          │
-│     Lofi Girl                                                             │
-│                                                                           │
-│            ▄▄████████▄▄               [ 01:42 / 03:30 ]                   │
-│          ███ ░░░░░░░░ ███            ━━━━━━━━●━━━━━━━━━━                  │
-│          ███ ░░  ◉ ░░ ███                                                 │
-│            ▀▀████████▀▀               ▃▅█▇▅▃ ▃▅▇█▇▅▃                      │
-│                                                                           │
-│  🔊 ▰▰▰▰▰▰▰▱▱▱ 70%   ⚡ 1.0x   🔁 Playlist   📻 Radio: ON                   │
-╰───────────────────────────────────────────────────────────────────────────╯
-```
+## 📸 Screenshot
+
+[![nvim-yt-player showing the record deck, visualizer, queue, and playback controls](docs/media-player.png)](docs/media-player.png)
+
+*Rendered preview with sample tracks. Click the image to view it at full size.*
+
+The player opens as a framed terminal music station: an animated record deck,
+a visualizer and output panel, a queue table with artist and duration columns,
+and a persistent transport bar. Mint, cyan, and amber accents distinguish
+playback, metadata, and controls. All player backgrounds are transparent,
+including panels, tabs, selections, borders, and the search input, so your
+terminal/editor transparency shows through. Smaller terminals use a compact deck and single-pane browsing.
 
 ---
 
@@ -46,12 +45,15 @@
 
 - **⚡ Zero-Freeze Asynchronous Playback**: Stream fetching and caching run entirely in the background. Neovim remains 100% responsive.
 - **🏗️ Zero-Dependency Backend**: Pure Lua talking to a local `mpv` process over a UNIX domain IPC socket. No bloated servers or external daemons needed.
-- **🎨 Premium Player Layouts**:
-  - `:YT player` — Toggles a dedicated side-panel buffer featuring a beautiful custom ASCII bounding-box, a live bouncing music visualizer, an interactive progress slidebar, and volume/speed tracking.
-  - `:YT mini` — Toggles a gorgeous floating window with the same premium visual player layout.
-- **🔍 Interactive Search Picker (`:YT search`)**: Query YouTube and pick a result using a beautiful floating picker displaying channel names and track durations.
-- **📁 Local Playlists (`:YT playlists`)**: Save tracks instantly with `s` and manage them inside a split-pane local playlist manager.
-- **📝 Interactive Queue Editor (`:YT queue_edit`)**: Reorder tracks with `J`/`K` or delete them with `dd` in real-time.
+- **🎨 Terminal Media Station**:
+  - `:YT` — Opens the **TUI Music Station & Unified Hub** (inspired by `cmus` and `ncmpcpp`) with a record deck, optional visualizer, framed queue table, and persistent transport bar across Deck, Search, Queue, Playlists, and History. Navigate with `j`/`k`, arrows, `gg`/`G`, or page keys; press `?` for shortcuts.
+  - `:YT mini` — Toggles a compact **Floating Player** with record artwork, transport buttons, live progress, optional visualizer, and next-track preview.
+  - `:YT player` — Toggles a docked sidebar with the same record deck and framed queue.
+- **🔍 Search with Track Details (`:YT search`)**: Browse results with a metadata preview on wider terminals, preserve unfinished queries across tabs, and play, queue, or save a track with one key. Loading, empty, and error states stay visible.
+- **📝 Interactive Table Queue Editor (`:YT queue_edit`)**: Reorder tracks with `J`/`K`, remove with `dd`, and shuffle with `S`. Titles, artists, and durations stay aligned without overlapping.
+- **📁 Master-Detail Playlists Manager (`:YT playlists`)**: Browse playlists and tracks in two panes, or switch between them with `Tab` on narrow terminals. Create (`N`), rename (`r`), play (`Enter`), or queue (`a`) a playlist. Deleting a playlist requires confirmation, and duplicate names cannot overwrite your library.
+- **🕐 Play History Timeline (`:YT history`)**: Timeline table with relative timestamps (`5m ago`, `2h ago`), instant replay, and one-key queueing.
+- **✨ Adaptive Themes & Icons**: Uses fully transparent backgrounds, distinct playback accents, and portable Unicode icons. Active tabs and selected tracks use color and bold text instead of background fills. Set `vim.g.have_nerd_font = true` or `ui.nerd_fonts = true` to enable Nerd Font icons.
 - **🎵 Seamless Playlist Ingestion (`:YT queue_playlist`)**: Rapidly ingest and parse YouTube playlists containing 100+ tracks without blocking the UI.
 - **⏩ Auto SponsorBlock**: Automatically skip sponsors, intros, and non-music off-topic segments (enable in config).
 - **📻 Autoplay Radio Mode (`:YT radio`)**: Endless recommendation stream (enabled by default). Spawns the YouTube Mix playlist matching your active song, deduplicates against active queue and history, and seamlessly appends fresh tracks before your queue ends.
@@ -120,7 +122,29 @@ use {
    - `gg`: Jump to first result
    - `G`: Jump to last result
    - `i`: Re-enter insert mode to refine your query
+   - `L`: Load more search results
+   - `?`: Show all player shortcuts
    - `q` / `<Esc>`: Close the picker
+
+### Hub Navigation (`:YT`)
+
+| Key | Action |
+|:---|:---|
+| `1`–`5` | Open Deck, Search, Queue, Playlists, or History |
+| `Tab` / `Shift-Tab` | Cycle tabs and playlist panes |
+| `j` / `k`, arrows | Select the next / previous item |
+| `gg` / `G` | Select the first / last item |
+| `Ctrl-d` / `Ctrl-u`, page keys | Move through long lists |
+| `Enter` | Play the selected track or playlist |
+| `/` / `i` | Focus the search input |
+| `Space` / `p` | Toggle playback |
+| `a` | Queue a search result, playlist, or history item; save a queue track |
+| `s` | Save the selected track to a local playlist |
+| `h` / `l` | Seek ±5 seconds; switch panes in Playlists |
+| `r` | Toggle radio; rename a playlist in Playlists |
+| `R` / `v` | Cycle repeat mode / visualizer (including off) |
+| `?` | Open the shortcut reference |
+| `q` / `Esc` | Close the hub |
 
 ---
 
@@ -130,6 +154,7 @@ All functions are available under the master command `:YT` with rich autocomplet
 
 | Subcommand | Description |
 |:---|:---|
+| `:YT` | Open / toggle the YouTube Player UI Dashboard |
 | `:YT play [url]` | Play a URL/search query, or resume playback |
 | `:YT pause` | Pause playback |
 | `:YT toggle` | Toggle play/pause |
@@ -141,15 +166,15 @@ All functions are available under the master command `:YT` with rich autocomplet
 | `:YT vol_up` / `:YT vol_down` | Increase/decrease volume by 5% |
 | `:YT mute` | Toggle playback mute state |
 | `:YT speed [value]` | Adjust speed absolutely or relatively (Forms listed below) |
-| `:YT player` | Toggle the premium player side-panel |
-| `:YT mini` | Toggle the premium player floating window |
-| `:YT search [query]` | Open the interactive search picker |
+| `:YT player` | Toggle the docked player sidebar panel |
+| `:YT mini` | Toggle the modern Top-Right floating Mini HUD |
+| `:YT search [query]` | Open the interactive multi-pane search picker |
 | `:YT queue <url>` | Append a track to the active queue |
 | `:YT queue_playlist <url>` | Parse and append all tracks from a YouTube playlist URL |
-| `:YT queue_edit` | Open the interactive queue editor |
-| `:YT playlists` | Open the split-pane local playlist manager |
+| `:YT queue_edit` | Open the interactive table queue editor |
+| `:YT playlists` | Open the master-detail local playlist manager |
 | `:YT radio` | Toggle autoplay radio mode (ON by default) |
-| `:YT history` | Open the persistent play history picker |
+| `:YT history` | Open the play history timeline picker |
 | `:YT history_clear` | Clear play history |
 | `:YT resume` | Resume the last persistent playback session |
 
@@ -168,6 +193,7 @@ When either the side-panel (`:YT player`) or floating window (`:YT mini`) is foc
 | Keymap | Action |
 |:---:|:---|
 | `p` / `s` / `t` | **Play** / **Pause** / **Toggle** |
+| `Space` | **Toggle** play/pause |
 | `n` / `b` | **Next** / **Previous** track |
 | `m` | **Mute** toggle |
 | `+` / `-` | **Volume** ±5% |
@@ -188,6 +214,17 @@ Override defaults by passing options into `setup()`:
 
 ```lua
 require("yt-player").setup({
+  ui = {
+    nerd_fonts = "auto", -- true, false, or "auto" (uses vim.g.have_nerd_font; otherwise Unicode)
+    theme = "auto",      -- automatically inherits your active colorscheme
+    border = "rounded",  -- "rounded", "single", "double", "solid", "none"
+    visualizer = "wave", -- "wave", "bars", "dots", "none"
+    mini = {
+      position = "top_right", -- "top_right", "bottom_right", "center"
+      width = 54,
+    },
+  },
+
   statusline = {
     enabled = true,
     format = "{icon} {title} - {artist} [{position}/{duration}]",

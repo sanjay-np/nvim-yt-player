@@ -58,10 +58,23 @@ M.config = {
 	},
 
 	sponsorblock = false, -- Set to true to enable auto-skipping
+
+	ui = {
+		nerd_fonts = "auto", -- true, false, or "auto"
+		theme = "auto", -- "auto" (adapts to colorscheme)
+		border = "rounded", -- "rounded", "single", "double", "solid", "none"
+		visualizer = "wave", -- "wave", "bars", "dots", "none"
+		mini = {
+			position = "top_right", -- "top_right", "bottom_right", "center"
+			width = 54,
+		},
+	},
 }
 
 function M.setup(opts)
 	M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+
+	require("yt-player.ui.theme").setup(M.config.ui)
 
 	M.mpv = require("yt-player.mpv")
 	M.state = require("yt-player.state")
@@ -72,7 +85,13 @@ function M.setup(opts)
 	require("yt-player.notify").setup(M.config.notifications)
 	M.status.setup(M.config.statusline)
 	require("yt-player.commands").setup(M.config)
-	require("yt-player.player").setup(M.config.player)
+
+	local player_opts = vim.tbl_deep_extend("force", M.config.player or {}, {
+		visualizer_style = M.config.ui.visualizer,
+		position = M.config.ui.mini and M.config.ui.mini.position or "top_right",
+		width = M.config.ui.mini and M.config.ui.mini.width or 54,
+	})
+	require("yt-player.player").setup(player_opts)
 
 	if M.config.keymaps.enabled then
 		require("yt-player.keymaps").setup(M.config.keymaps)

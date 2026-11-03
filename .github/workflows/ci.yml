@@ -45,6 +45,12 @@ jobs:
             "yt-player.state",
             "yt-player.status",
             "yt-player.utils",
+            "yt-player.ui.hub",
+            "yt-player.ui.layout",
+            "yt-player.ui.views",
+            "yt-player.ui.window",
+            "yt-player.ui.theme",
+            "yt-player.ui.components.deck",
           }
 
           for _, mod in ipairs(modules) do
@@ -81,3 +87,6 @@ jobs:
 
           print("All CI verification assertions passed successfully!")
           ' -c 'q'
+
+      - name: Run UI Regression Tests
+        run: nvim --headless -u NONE -i NONE -n -c 'set rtp+=.' -c 'lua dofile("tests/ui_spec.lua")'

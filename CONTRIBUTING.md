@@ -13,7 +13,8 @@ The codebase is written in pure Lua (compatible with LuaJIT in Neovim 0.9+) and 
 - **[`lua/yt-player/mpv.lua`](lua/yt-player/mpv.lua)**: Core UNIX domain socket IPC driver that communicates directly with background `mpv`.
 - **[`lua/yt-player/radio.lua`](lua/yt-player/radio.lua)**: Autoplay recommendation engine that fetches YouTube Mix tracks via `yt-dlp` in the background with cooldown guards.
 - **[`lua/yt-player/search.lua`](lua/yt-player/search.lua)**: Floating interactive search picker with live pagination and optimized row rendering.
-- **[`lua/yt-player/player.lua`](lua/yt-player/player.lua)**: ASCII layout engine, live visualizer animations, progress bars, and floating/side-panel windows.
+- **[`lua/yt-player/player.lua`](lua/yt-player/player.lua)**: Shared transport layout, live progress, and floating/sidebar player windows.
+- **[`lua/yt-player/ui/`](lua/yt-player/ui/)**: Unified hub, responsive views, display-width helpers, themes, and visualizers.
 - **[`lua/yt-player/state.lua`](lua/yt-player/state.lua)**: Central playback state store synchronized with mpv property changes.
 - **[`lua/yt-player/queue.lua`](lua/yt-player/queue.lua)**: Interactive queue manager (`:YT queue_edit`) with bounds-checked drag/drop operations.
 - **[`lua/yt-player/playlists.lua`](lua/yt-player/playlists.lua)**: Local split-pane playlist manager persisted to `stdpath("data")`.
@@ -58,6 +59,14 @@ require("yt-player").setup({})
 require("yt-player.commands").setup()
 print("All local verification tests passed!")
 ' -c 'q'
+```
+
+The UI regression suite uses offline fixture data and stubbed playback commands.
+It checks responsive layouts, Unicode titles, selection after scrolling,
+search response ordering, playlist edits, and window cleanup:
+
+```bash
+nvim --headless -u NONE -i NONE -n -c 'set rtp+=.' -c 'lua dofile("tests/ui_spec.lua")'
 ```
 
 ---

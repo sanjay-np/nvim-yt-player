@@ -1,14 +1,17 @@
----@mod yt-player.playlists Persistent local playlists
+---@mod yt-player.playlists Persistent local playlists and modern manager
 local M = {}
 
 local utils = require("yt-player.utils")
+local theme = require("yt-player.ui.theme")
+local window = require("yt-player.ui.window")
+local state_mod = require("yt-player.state")
 
 local function get_path()
 	return vim.fn.stdpath("data") .. "/yt-player-playlists.json"
 end
 
 --- Read all playlists
----@return table { [playlist_name] = { {title, url, duration}, ... } }
+---@return table { [playlist_name] = { {title, url, duration, added_at}, ... } }
 function M.get_all()
 	local data, is_corrupt = utils.read_json_file(get_path(), {})
 	if is_corrupt then
@@ -50,6 +53,7 @@ function M.add_track(playlist_name, track)
 		title = track.title or "Unknown",
 		url = track.url,
 		duration = track.duration or 0,
+		channel = track.channel or "",
 		added_at = os.time(),
 	})
 
@@ -121,21 +125,75 @@ function M.prompt_save(track)
 	end)
 end
 
---- Open split-window Playlist Manager
+--- Play all tracks from a playlist
+---@param playlist_name string
+function M.play_all(playlist_name)
+	local lists = M.get_all()
+	local tracks = lists[playlist_name] or {}
+	if #tracks == 0 then
+		vim.notify("YT Control: Playlist is empty", vim.log.levels.WARN)
+		return
+	end
+
+	local yt = require("yt-player")
+	local mpv = require("yt-player.mpv")
+	local state = state_mod
+
+	state.current.playlist_meta = state.current.playlist_meta or {}
+	state.current.artist_map = state.current.artist_map or {}
+
+	for _, t in ipairs(tracks) do
+		state.current.playlist_meta[t.url] = t.title or "Unknown"
+		if t.channel and t.channel ~= "" then
+			state.current.artist_map[t.url] = t.channel
+		end
+	end
+
+	-- Start with first track
+	yt.load(tracks[1].url)
+
+	-- Append remaining tracks
+	for i = 2, #tracks do
+		mpv.send_command({ "loadfile", tracks[i].url, "append-play" })
+	end
+
+	vim.notify(string.format("YT Control: Playing playlist '%s' (%d tracks)", playlist_name, #tracks), vim.log.levels.INFO)
+end
+
+--- Append all tracks from a playlist to queue
+---@param playlist_name string
+function M.queue_all(playlist_name)
+	local lists = M.get_all()
+	local tracks = lists[playlist_name] or {}
+	if #tracks == 0 then
+		vim.notify("YT Control: Playlist is empty", vim.log.levels.WARN)
+		return
+	end
+
+	local yt = require("yt-player")
+	for _, t in ipairs(tracks) do
+		yt.queue(t, true)
+	end
+	vim.notify(string.format("YT Control: Queued %d tracks from '%s'", #tracks, playlist_name), vim.log.levels.INFO)
+end
+
+--- Open Modern Master-Detail Playlist Manager
 function M.open_manager()
 	local lists = M.get_all()
 	local list_names = vim.tbl_keys(lists)
 	table.sort(list_names)
 
 	local total_w = math.floor(vim.o.columns * 0.8)
-	local left_w = math.max(25, math.floor(total_w * 0.3))
+	local left_w = math.max(26, math.floor(total_w * 0.32))
 	local right_w = total_w - left_w - 2
-	local height = math.floor(vim.o.lines * 0.8)
-	local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
+	local height = math.floor(vim.o.lines * 0.72)
+	local row = math.max(0, math.floor((vim.o.lines - height) / 2))
 	local col = math.max(0, math.floor((vim.o.columns - total_w) / 2))
 
 	local left_buf = vim.api.nvim_create_buf(false, true)
 	local right_buf = vim.api.nvim_create_buf(false, true)
+
+	local winhl = "Normal:YtPlayerNormal,NormalNC:YtPlayerNormal,NormalFloat:YtPlayerNormal,FloatBorder:YtPlayerBorder,FloatTitle:YtPlayerTitle,FloatFooter:YtPlayerFooter,CursorLine:YtPlayerSelected"
 
 	local left_win = vim.api.nvim_open_win(left_buf, true, {
 		relative = "editor",
@@ -145,8 +203,10 @@ function M.open_manager()
 		height = height,
 		style = "minimal",
 		border = "rounded",
-		title = " Playlists ",
+		title = string.format(" %s Playlists ", theme.icon("playlist")),
 		title_pos = "center",
+		footer = " [n] New  [r] Rename  [dd] Del ",
+		footer_pos = "center",
 	})
 
 	local right_win = vim.api.nvim_open_win(right_buf, false, {
@@ -159,330 +219,340 @@ function M.open_manager()
 		border = "rounded",
 		title = " Tracks ",
 		title_pos = "center",
+		footer = " [↵] Play  [a] Queue  [P] Play All  [dd] Remove ",
+		footer_pos = "center",
 	})
 
-	vim.wo[left_win].cursorline = true
-	vim.wo[right_win].cursorline = true
+	for _, w in ipairs({ left_win, right_win }) do
+		vim.wo[w].winhighlight = winhl
+		vim.wo[w].cursorline = true
+		vim.wo[w].number = false
+		vim.wo[w].relativenumber = false
+		vim.wo[w].signcolumn = "no"
+	end
+
+	vim.bo[left_buf].buftype = "nofile"
 	vim.bo[left_buf].bufhidden = "wipe"
+	vim.bo[right_buf].buftype = "nofile"
 	vim.bo[right_buf].bufhidden = "wipe"
 
-	-- Setup highlights
-	local ns = vim.api.nvim_create_namespace("yt_playlists")
-	vim.api.nvim_set_hl(0, "YTPlaylistHeader", { link = "Title" })
-	vim.api.nvim_set_hl(0, "YTPlaylistMeta", { link = "Comment" })
-	pcall(vim.api.nvim_set_hl, 0, "YTPlaylistCurrent", {
-		fg = "#50fa7b",
-		ctermfg = 84,
-		bold = true,
-		cterm = { bold = true },
-	})
-
-	-- State
 	local selected_playlist_idx = 1
-	local selected_track_idx = 1
-	local current_pane = "left" -- "left" or "right"
+	local active_pane = "left" -- "left" | "right"
 
-	local function get_current_playlist_name()
+	local function get_active_playlist_name()
 		if #list_names == 0 then
 			return nil
 		end
 		return list_names[selected_playlist_idx]
 	end
 
-	local function get_current_tracks()
-		local name = get_current_playlist_name()
+	local function get_active_tracks()
+		local name = get_active_playlist_name()
 		if not name then
 			return {}
 		end
 		return lists[name] or {}
 	end
 
-	-- Render Left Pane
 	local function render_left()
+		if not vim.api.nvim_buf_is_valid(left_buf) then
+			return
+		end
 		local lines = {}
+		local hls = {}
+
 		if #list_names == 0 then
-			table.insert(lines, " (No Playlists)")
+			table.insert(lines, "")
+			table.insert(lines, "   (No playlists found)")
+			table.insert(lines, "   Press 'n' to create one")
+			table.insert(hls, { line = 1, hl = "YtPlayerMuted", col_start = 0, col_end = -1 })
+			table.insert(hls, { line = 2, hl = "YtPlayerKeyHint", col_start = 0, col_end = -1 })
 		else
 			for i, name in ipairs(list_names) do
-				local t_count = #(lists[name] or {})
-				table.insert(lines, string.format(" %s (%d)", name, t_count))
+				local count = #(lists[name] or {})
+				local is_active = (i == selected_playlist_idx)
+				local prefix = is_active and (theme.icon("selected") .. " ") or "  "
+				local folder = theme.icon("folder") .. " "
+				local clean_name = utils.safe_truncate(name, left_w - 12)
+				local row = string.format(" %s%s%s", prefix, folder, clean_name)
+				table.insert(lines, row)
+
+				local hl = is_active and "YtPlayerTitleText" or "YtPlayerText"
+				table.insert(hls, { line = #lines - 1, hl = hl, col_start = 0, col_end = -1 })
+				table.insert(hls, {
+					line = #lines - 1,
+					virt_text = { { string.format("[%d]  ", count), "YtPlayerMuted" } },
+					virt_text_pos = "right_align",
+				})
 			end
 		end
 
-		local help_lines = {
-			string.rep("─", left_w),
-			" ↵/l: Open   p: Play",
-			" a: Queue   dd: Delete",
-			" q: Close",
-		}
-		while #lines < height - #help_lines do
-			table.insert(lines, "")
-		end
-		for _, hl in ipairs(help_lines) do
-			table.insert(lines, hl)
-		end
-
-		vim.bo[left_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(left_buf, 0, -1, false, lines)
-		vim.bo[left_buf].modifiable = false
-		pcall(vim.api.nvim_win_set_cursor, left_win, { math.max(1, selected_playlist_idx), 0 })
-
-		vim.api.nvim_buf_clear_namespace(left_buf, ns, 0, -1)
-		local start_hl = #lines - #help_lines
-		for i = start_hl, #lines - 1 do
-			vim.api.nvim_buf_add_highlight(left_buf, ns, "YTPlaylistMeta", i, 0, -1)
+		window.render(left_buf, lines, hls)
+		if #list_names > 0 and vim.api.nvim_win_is_valid(left_win) then
+			pcall(vim.api.nvim_win_set_cursor, left_win, { math.max(1, selected_playlist_idx), 0 })
 		end
 	end
 
-	-- Render Right Pane
 	local function render_right()
-		local tracks = get_current_tracks()
+		if not vim.api.nvim_buf_is_valid(right_buf) then
+			return
+		end
+		local tracks = get_active_tracks()
 		local lines = {}
+		local hls = {}
+
+		local current_state = state_mod.get_current()
+		local cur_pos = current_state.playlist_pos
+		local cur_filename = (current_state.playlist and cur_pos and current_state.playlist[cur_pos + 1])
+			and current_state.playlist[cur_pos + 1].filename or nil
+
+		local pl_name = get_active_playlist_name()
+		if pl_name and vim.api.nvim_win_is_valid(right_win) then
+			pcall(vim.api.nvim_win_set_config, right_win, {
+				title = string.format(" %s %s (%d tracks) ", theme.icon("playlist"), pl_name, #tracks),
+				title_pos = "center",
+			})
+		end
+
 		if #tracks == 0 then
-			table.insert(lines, " (No Tracks)")
+			table.insert(lines, "")
+			table.insert(lines, "   (Playlist is empty)")
+			table.insert(lines, "   Add tracks with 's' during search or playback")
+			table.insert(hls, { line = 1, hl = "YtPlayerMuted", col_start = 0, col_end = -1 })
+			table.insert(hls, { line = 2, hl = "YtPlayerKeyHint", col_start = 0, col_end = -1 })
 		else
 			for i, t in ipairs(tracks) do
-				local title = t.title or "Unknown"
-				table.insert(lines, string.format(" %d. %s", i, title))
-				table.insert(lines, string.format("    ⏱ %s", utils.format_time(t.duration)))
-				table.insert(lines, "")
-			end
-			if #lines > 0 and lines[#lines] == "" then
-				table.remove(lines)
-			end
-		end
+				local is_playing = cur_filename and (t.url == cur_filename)
+				local prefix = is_playing and (theme.icon("playing") .. " ") or string.format("%2d. ", i)
+				local dur_str = (t.duration and t.duration > 0) and utils.format_time(t.duration) or ""
+				local clean_title = utils.safe_truncate(t.title or "Unknown", right_w - 20)
 
-		local help_lines = {
-			string.rep("─", right_w),
-			" ↵: Play     a: Queue     dd: Delete     h: Back     q: Close",
-		}
-		while #lines < height - #help_lines do
-			table.insert(lines, "")
-		end
-		for _, hl in ipairs(help_lines) do
-			table.insert(lines, hl)
-		end
+				table.insert(lines, string.format("  %s%s", prefix, clean_title))
+				local line_idx = #lines - 1
 
-		vim.bo[right_buf].modifiable = true
-		vim.api.nvim_buf_set_lines(right_buf, 0, -1, false, lines)
-		vim.bo[right_buf].modifiable = false
+				if is_playing then
+					table.insert(hls, { line = line_idx, hl = "YtPlayerPlaying", col_start = 0, col_end = -1 })
+				else
+					table.insert(hls, { line = line_idx, hl = "YtPlayerText", col_start = 0, col_end = -1 })
+					table.insert(hls, { line = line_idx, hl = "YtPlayerIndex", col_start = 2, col_end = 6 })
+				end
 
-		-- Highlight metadata
-		vim.api.nvim_buf_clear_namespace(right_buf, ns, 0, -1)
-		for i = 1, #tracks do
-			local meta_line = (i - 1) * 3 + 1
-			if meta_line < #lines - #help_lines then
-				vim.api.nvim_buf_add_highlight(right_buf, ns, "YTPlaylistMeta", meta_line, 0, -1)
-			end
-		end
-		local start_hl = #lines - #help_lines
-		for i = start_hl, #lines - 1 do
-			vim.api.nvim_buf_add_highlight(right_buf, ns, "YTPlaylistMeta", i, 0, -1)
-		end
-
-		-- Highlight currently playing track
-		local state = state_mod.get_current()
-		if state.playlist_pos and state.playlist and state.playlist[state.playlist_pos + 1] then
-			local playing_url = state.playlist[state.playlist_pos + 1].filename
-			if playing_url then
-				for i, t in ipairs(tracks) do
-					if t.url == playing_url then
-						local title_line = (i - 1) * 3
-						if title_line < #lines - #help_lines then
-							pcall(vim.api.nvim_buf_add_highlight, right_buf, ns, "YTPlaylistCurrent", title_line, 0, -1)
-						end
-						break
-					end
+				if dur_str ~= "" then
+					table.insert(hls, {
+						line = line_idx,
+						virt_text = { { dur_str .. "   ", is_playing and "YtPlayerPlaying" or "YtPlayerDuration" } },
+						virt_text_pos = "right_align",
+					})
 				end
 			end
 		end
 
-		pcall(vim.api.nvim_win_set_cursor, right_win, { 1, 0 })
+		window.render(right_buf, lines, hls)
 	end
 
-	local function focus_pane(pane)
-		current_pane = pane
-		if pane == "left" then
-			vim.api.nvim_set_current_win(left_win)
-			vim.wo[left_win].cursorline = true
-			vim.wo[right_win].cursorline = false
-		else
-			if #(get_current_tracks()) > 0 then
-				vim.api.nvim_set_current_win(right_win)
-				vim.wo[left_win].cursorline = false
-				vim.wo[right_win].cursorline = true
-			else
-				vim.notify("YT Control: No tracks to focus", vim.log.levels.WARN)
-				focus_pane("left")
-			end
-		end
+	local function refresh_all()
+		lists = M.get_all()
+		list_names = vim.tbl_keys(lists)
+		table.sort(list_names)
+		selected_playlist_idx = math.max(1, math.min(#list_names, selected_playlist_idx))
+		render_left()
+		render_right()
 	end
 
-	-- Close helper
 	local function close_all()
-		pcall(vim.api.nvim_win_close, left_win, true)
-		pcall(vim.api.nvim_win_close, right_win, true)
+		window.safe_close(left_win, left_buf)
+		window.safe_close(right_win, right_buf)
 	end
 
-	-- Left Pane Keymaps
-	local left_opts = { buffer = left_buf, silent = true }
-	vim.keymap.set("n", "q", close_all, left_opts)
-	vim.keymap.set("n", "<Esc>", close_all, left_opts)
+	-- Left Keymaps
+	local lo = { buffer = left_buf, silent = true, noremap = true }
+	vim.keymap.set("n", "q", close_all, lo)
+	vim.keymap.set("n", "<Esc>", close_all, lo)
 
 	vim.keymap.set("n", "j", function()
-		if selected_playlist_idx < #list_names then
-			selected_playlist_idx = selected_playlist_idx + 1
-			render_left()
-			render_right()
+		if #list_names == 0 then
+			return
 		end
-	end, left_opts)
+		selected_playlist_idx = math.min(#list_names, selected_playlist_idx + 1)
+		render_left()
+		render_right()
+	end, lo)
 
 	vim.keymap.set("n", "k", function()
-		if selected_playlist_idx > 1 then
-			selected_playlist_idx = selected_playlist_idx - 1
-			render_left()
-			render_right()
+		if #list_names == 0 then
+			return
 		end
-	end, left_opts)
+		selected_playlist_idx = math.max(1, selected_playlist_idx - 1)
+		render_left()
+		render_right()
+	end, lo)
 
-	-- Right/Enter switches to right pane
+	vim.keymap.set("n", "<Tab>", function()
+		if #get_active_tracks() > 0 and vim.api.nvim_win_is_valid(right_win) then
+			active_pane = "right"
+			vim.api.nvim_set_current_win(right_win)
+			pcall(vim.api.nvim_win_set_cursor, right_win, { 1, 0 })
+		end
+	end, lo)
+
 	vim.keymap.set("n", "l", function()
-		focus_pane("right")
-	end, left_opts)
+		if #get_active_tracks() > 0 and vim.api.nvim_win_is_valid(right_win) then
+			active_pane = "right"
+			vim.api.nvim_set_current_win(right_win)
+			pcall(vim.api.nvim_win_set_cursor, right_win, { 1, 0 })
+		end
+	end, lo)
+
 	vim.keymap.set("n", "<CR>", function()
-		focus_pane("right")
-	end, left_opts)
-
-	-- Play/Queue entire playlist from left pane
-	local function action_left(action_type)
-		local pl_name = get_current_playlist_name()
-		if not pl_name then
-			return
+		if #get_active_tracks() > 0 and vim.api.nvim_win_is_valid(right_win) then
+			active_pane = "right"
+			vim.api.nvim_set_current_win(right_win)
+			pcall(vim.api.nvim_win_set_cursor, right_win, { 1, 0 })
 		end
-		local tracks = get_current_tracks()
-		if #tracks == 0 then
-			return
-		end
+	end, lo)
 
-		local yt = require("yt-player")
-		for i, t in ipairs(tracks) do
-			if i == 1 and action_type == "play" then
-				yt.load(t.url)
-			else
-				yt.queue(t, true)
+	-- Create new playlist
+	vim.keymap.set("n", "n", function()
+		vim.ui.input({ prompt = "New Playlist Name: " }, function(input)
+			if input and vim.trim(input) ~= "" then
+				local name = vim.trim(input)
+				local all = M.get_all()
+				if not all[name] then
+					all[name] = {}
+					save(all)
+					vim.notify("YT Control: Created playlist '" .. name .. "'", vim.log.levels.INFO)
+					refresh_all()
+				else
+					vim.notify("YT Control: Playlist already exists", vim.log.levels.WARN)
+				end
 			end
-		end
-		vim.notify("YT Control: Queued playlist '" .. pl_name .. "'", vim.log.levels.INFO)
-	end
+		end)
+	end, lo)
 
-	vim.keymap.set("n", "p", function()
-		action_left("play")
-	end, left_opts)
-	vim.keymap.set("n", "a", function()
-		action_left("queue")
-	end, left_opts)
+	-- Rename playlist
+	vim.keymap.set("n", "r", function()
+		local old_name = get_active_playlist_name()
+		if not old_name then
+			return
+		end
+		vim.ui.input({ prompt = "Rename '" .. old_name .. "' to: ", default = old_name }, function(input)
+			if input and vim.trim(input) ~= "" and vim.trim(input) ~= old_name then
+				local new_name = vim.trim(input)
+				local all = M.get_all()
+				all[new_name] = all[old_name]
+				all[old_name] = nil
+				save(all)
+				vim.notify(string.format("YT Control: Renamed to '%s'", new_name), vim.log.levels.INFO)
+				refresh_all()
+			end
+		end)
+	end, lo)
 
 	-- Delete playlist
 	vim.keymap.set("n", "dd", function()
-		local pl_name = get_current_playlist_name()
-		if not pl_name then
+		local name = get_active_playlist_name()
+		if not name then
 			return
 		end
-		if M.remove_something(pl_name, nil) then
-			vim.notify("Deleted playlist " .. pl_name, vim.log.levels.INFO)
-			lists = M.get_all()
-			list_names = vim.tbl_keys(lists)
-			table.sort(list_names)
-			selected_playlist_idx = math.min(selected_playlist_idx, math.max(1, #list_names))
-			render_left()
-			render_right()
-		end
-	end, left_opts)
+		vim.ui.select({ "No, Cancel", "Yes, Delete Playlist" }, {
+			prompt = string.format("Delete playlist '%s'?", name),
+		}, function(choice)
+			if choice == "Yes, Delete Playlist" then
+				M.remove_something(name)
+				vim.notify("YT Control: Deleted playlist '" .. name .. "'", vim.log.levels.INFO)
+				selected_playlist_idx = math.max(1, selected_playlist_idx - 1)
+				refresh_all()
+			end
+		end)
+	end, lo)
 
-	-- Right Pane Keymaps
-	local right_opts = { buffer = right_buf, silent = true }
-	vim.keymap.set("n", "q", close_all, right_opts)
-	vim.keymap.set("n", "<Esc>", close_all, right_opts)
+	-- Play all / Queue all from left pane
+	vim.keymap.set("n", "P", function()
+		local name = get_active_playlist_name()
+		if name then
+			M.play_all(name)
+		end
+	end, lo)
+
+	vim.keymap.set("n", "A", function()
+		local name = get_active_playlist_name()
+		if name then
+			M.queue_all(name)
+		end
+	end, lo)
+
+	-- Right Keymaps (Tracks)
+	local ro = { buffer = right_buf, silent = true, noremap = true }
+	vim.keymap.set("n", "q", close_all, ro)
+	vim.keymap.set("n", "<Esc>", close_all, ro)
+
+	vim.keymap.set("n", "<Tab>", function()
+		active_pane = "left"
+		if vim.api.nvim_win_is_valid(left_win) then
+			vim.api.nvim_set_current_win(left_win)
+		end
+	end, ro)
 
 	vim.keymap.set("n", "h", function()
-		focus_pane("left")
-	end, right_opts)
-
-	local function get_right_idx()
-		local r = vim.api.nvim_win_get_cursor(right_win)[1]
-		return math.floor((r - 1) / 3) + 1
-	end
-
-	local function right_jump(dir)
-		local tracks = get_current_tracks()
-		if #tracks == 0 then
-			return
+		active_pane = "left"
+		if vim.api.nvim_win_is_valid(left_win) then
+			vim.api.nvim_set_current_win(left_win)
 		end
-		local curr = get_right_idx()
-		local target = math.max(1, math.min(#tracks, curr + dir))
-		vim.api.nvim_win_set_cursor(right_win, { (target - 1) * 3 + 1, 0 })
-	end
+	end, ro)
 
-	vim.keymap.set("n", "j", function()
-		right_jump(1)
-	end, right_opts)
-	vim.keymap.set("n", "k", function()
-		right_jump(-1)
-	end, right_opts)
-
-	-- Play single track
+	-- Play track
 	vim.keymap.set("n", "<CR>", function()
-		local tracks = get_current_tracks()
-		local t = tracks[get_right_idx()]
+		local tracks = get_active_tracks()
+		local r = vim.api.nvim_win_get_cursor(right_win)[1]
+		local t = tracks[r]
 		if t then
 			require("yt-player").load(t.url)
-			vim.notify("YT Control: Playing → " .. t.title, vim.log.levels.INFO)
+			vim.defer_fn(render_right, 200)
 		end
-	end, right_opts)
+	end, ro)
 
-	-- Queue single track
+	-- Queue track
 	vim.keymap.set("n", "a", function()
-		local tracks = get_current_tracks()
-		local t = tracks[get_right_idx()]
+		local tracks = get_active_tracks()
+		local r = vim.api.nvim_win_get_cursor(right_win)[1]
+		local t = tracks[r]
 		if t then
 			require("yt-player").queue(t)
 		end
-	end, right_opts)
+	end, ro)
 
-	-- Delete track
+	-- Remove track from playlist
 	vim.keymap.set("n", "dd", function()
-		local pl_name = get_current_playlist_name()
-		local tracks = get_current_tracks()
-		local t = tracks[get_right_idx()]
-		if pl_name and t then
-			if M.remove_something(pl_name, t.url) then
-				lists = M.get_all()
-				render_left()
-				render_right()
+		local tracks = get_active_tracks()
+		local pl_name = get_active_playlist_name()
+		local r = vim.api.nvim_win_get_cursor(right_win)[1]
+		local t = tracks[r]
+		if t and pl_name then
+			M.remove_something(pl_name, t.url)
+			refresh_all()
+			local new_tracks = get_active_tracks()
+			if vim.api.nvim_win_is_valid(right_win) and #new_tracks > 0 then
+				pcall(vim.api.nvim_win_set_cursor, right_win, { math.min(r, #new_tracks), 0 })
 			end
 		end
-	end, right_opts)
+	end, ro)
 
-	-- Synchronize close
+	-- Play all
+	vim.keymap.set("n", "P", function()
+		local name = get_active_playlist_name()
+		if name then
+			M.play_all(name)
+		end
+	end, ro)
+
+	render_left()
+	render_right()
+
 	vim.api.nvim_create_autocmd("BufWipeout", {
 		buffer = left_buf,
 		once = true,
-		callback = function()
-			pcall(vim.api.nvim_win_close, right_win, true)
-		end,
+		callback = close_all,
 	})
-	vim.api.nvim_create_autocmd("BufWipeout", {
-		buffer = right_buf,
-		once = true,
-		callback = function()
-			pcall(vim.api.nvim_win_close, left_win, true)
-		end,
-	})
-
-	-- Initialization
-	render_left()
-	render_right()
-	focus_pane("left")
 end
 
 return M
