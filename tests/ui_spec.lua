@@ -205,7 +205,7 @@ local function run()
 	vim.wait(300, function() return false end)
 	check(api.nvim_get_current_win() == focused_prompt, "Live refresh stole search input focus")
 
-	-- Input drafts survive refreshes, tab switches, and closing the hub.
+	-- Input drafts survive refreshes and tab switches; closing the hub resets tab and clears search.
 	hub.open(2)
 	api.nvim_buf_set_lines(hub.search_prompt_buf, 0, -1, false, { "unfinished query" })
 	hub.refresh()
@@ -216,10 +216,26 @@ local function run()
 	local prompt_buf = hub.search_prompt_buf
 	hub.close()
 	check(not api.nvim_buf_is_valid(prompt_buf), "Search buffer leaked after close")
-	hub.open(2)
-	check(api.nvim_buf_get_lines(hub.search_prompt_buf, 0, 1, false)[1] == "unfinished query", "Reopening erased input")
+	hub.open()
+	check(hub.active_tab == 1, "Reopening hub did not default to Deck tab")
+	hub.switch_tab(2)
+	check(api.nvim_buf_get_lines(hub.search_prompt_buf, 0, 1, false)[1] == "", "Search input was not cleared after close")
+	check(#hub.search_results == 0, "Search results were not cleared after close")
+
+	-- Reopening via toggle (:YT) resets to Deck tab and clears search state
+	hub.run_search("test song")
+	requests[#requests].callback({ tracks[1], tracks[2] })
+	vim.wait(20, function() return not hub.search_loading end)
+	check(#hub.search_results == 2, "Search results not populated")
+	hub.close()
+	hub.toggle()
+	check(hub.active_tab == 1, ":YT did not open Deck tab by default")
+	check(hub.search_query == "", ":YT did not clear search query after close")
+	check(#hub.search_results == 0, ":YT did not clear search results after close")
+	hub.close()
 
 	-- Out-of-order async responses and responses after close are ignored.
+	hub.open(2)
 	yt.config.search.limit = 3
 	hub.run_search("older query")
 	local older = requests[#requests]

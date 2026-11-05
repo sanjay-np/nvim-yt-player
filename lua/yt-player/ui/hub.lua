@@ -707,11 +707,15 @@ local function setup_hub_keymaps()
 	end, o)
 end
 
---- Open the UI Hub without losing the current search or tab selection.
+--- Open the UI Hub. Defaults to Deck tab (1) when opened fresh.
 ---@param tab_idx number|nil
 ---@param search_query string|nil
 function M.open(tab_idx, search_query)
-	if tab_idx and tab_idx >= 1 and tab_idx <= #TABS then M.active_tab = tab_idx end
+	if tab_idx and tab_idx >= 1 and tab_idx <= #TABS then
+		M.active_tab = tab_idx
+	elseif not tab_idx and (not M.win_id or not vim.api.nvim_win_is_valid(M.win_id)) then
+		M.active_tab = 1
+	end
 	local query = vim.trim(search_query or "")
 	if query ~= "" then M.active_tab = 2 end
 	if M.win_id and vim.api.nvim_win_is_valid(M.win_id) then
@@ -789,6 +793,8 @@ function M.close(wiping)
 		pcall(vim.api.nvim_buf_delete, M.search_prompt_buf, { force = true })
 	end
 	M.search_prompt_buf = nil
+	M.reset_search()
+	M.active_tab = 1
 	if M.help then window.safe_close(M.help.win, M.help.buf); M.help = nil end
 	if M.update_timer then
 		M.update_timer:stop()
