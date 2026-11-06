@@ -12,12 +12,11 @@ The codebase is written in pure Lua (compatible with LuaJIT in Neovim 0.9+) and 
 
 - **[`lua/yt-player/mpv.lua`](lua/yt-player/mpv.lua)**: Core UNIX domain socket IPC driver that communicates directly with background `mpv`.
 - **[`lua/yt-player/radio.lua`](lua/yt-player/radio.lua)**: Autoplay recommendation engine that fetches YouTube Mix tracks via `yt-dlp` in the background with cooldown guards.
-- **[`lua/yt-player/search.lua`](lua/yt-player/search.lua)**: Floating interactive search picker with live pagination and optimized row rendering.
+- **[`lua/yt-player/search.lua`](lua/yt-player/search.lua)**: Async `yt-dlp` search with pagination (rendered by the Hub's Search tab) and YouTube playlist import.
 - **[`lua/yt-player/player.lua`](lua/yt-player/player.lua)**: Shared transport layout, live progress, and floating/sidebar player windows.
 - **[`lua/yt-player/ui/`](lua/yt-player/ui/)**: Unified hub, responsive views, display-width helpers, themes, and visualizers.
 - **[`lua/yt-player/state.lua`](lua/yt-player/state.lua)**: Central playback state store synchronized with mpv property changes.
-- **[`lua/yt-player/queue.lua`](lua/yt-player/queue.lua)**: Interactive queue manager (`:YT queue_edit`) with bounds-checked drag/drop operations.
-- **[`lua/yt-player/playlists.lua`](lua/yt-player/playlists.lua)**: Local split-pane playlist manager persisted to `stdpath("data")`.
+- **[`lua/yt-player/playlists.lua`](lua/yt-player/playlists.lua)**: Local playlists persisted to `stdpath("data")` (managed in the Hub's Playlists tab).
 - **[`lua/yt-player/history.lua`](lua/yt-player/history.lua)**: Persistent play history tracker.
 - **[`lua/yt-player/session.lua`](lua/yt-player/session.lua)**: Automatic session saving and resume engine.
 - **[`lua/yt-player/status.lua`](lua/yt-player/status.lua)** & **[`lua/lualine/components/yt-player.lua`](lua/lualine/components/yt-player.lua)**: High-performance statusline and lualine formatters.
@@ -42,7 +41,6 @@ local modules = {
   "yt-player.notify",
   "yt-player.player",
   "yt-player.playlists",
-  "yt-player.queue",
   "yt-player.radio",
   "yt-player.search",
   "yt-player.session",
@@ -67,6 +65,16 @@ search response ordering, playlist edits, and window cleanup:
 
 ```bash
 nvim --headless -u NONE -i NONE -n -c 'set rtp+=.' -c 'lua dofile("tests/ui_spec.lua")'
+```
+
+The core regression suite covers playback and persistence logic offline (no mpv,
+yt-dlp, or network): session resume, track-change notifications, corrupt data
+file recovery, SponsorBlock script refresh, multi-instance attach, radio
+fetches that are cancelled or overtaken by a track change, and player window
+hygiene (no undo history, tabpage-aware toggling, theme refresh):
+
+```bash
+nvim --headless -u NONE -i NONE -n -c 'set rtp+=.' -c 'lua dofile("tests/core_spec.lua")'
 ```
 
 ---

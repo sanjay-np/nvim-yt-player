@@ -39,6 +39,14 @@ function M.format_duration(seconds)
 	return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
 end
 
+---Format a playback speed multiplier: 1.25 → "1.25x", 1.5 → "1.5x", 2 → "2x".
+---@param speed number|nil
+---@return string
+function M.format_speed(speed)
+	local text = string.format("%.2f", tonumber(speed) or 1):gsub("0+$", ""):gsub("%.$", "")
+	return text .. "x"
+end
+
 ---Truncate a string to `max_width` terminal display columns.
 ---Strips newlines and control characters first so they never break buffer lines.
 ---@param str string|nil
@@ -178,10 +186,35 @@ function M.read_json_file(filepath, default_val)
 		return default_val, false
 	end
 	local ok, data = pcall(vim.json.decode, content)
-	if not ok or type(data) ~= type(default_val) then
+	if not ok or (default_val ~= nil and type(data) ~= type(default_val)) then
 		return default_val, true
 	end
 	return data, false
+end
+
+---Read a user data file (history, playlists) that must hold a JSON table.
+---An unreadable file is moved aside first, so the next save starts fresh
+---instead of silently overwriting whatever the user had in it.
+---@param filepath string
+---@param label string  Shown in the warning, e.g. "playlists"
+---@return table
+function M.read_json_store(filepath, label)
+	local data, is_corrupt = M.read_json_file(filepath, {})
+	if is_corrupt then
+		local backup = filepath .. ".corrupt-" .. os.date("%Y%m%d-%H%M%S")
+		if os.rename(filepath, backup) then
+			vim.notify(
+				string.format("YT Control: %s file was unreadable; moved it to %s", label, backup),
+				vim.log.levels.WARN
+			)
+		else
+			vim.notify(
+				string.format("YT Control: %s file is unreadable and could not be backed up: %s", label, filepath),
+				vim.log.levels.ERROR
+			)
+		end
+	end
+	return data
 end
 
 ---Extract YouTube 11-char Video ID from any standard or shortened URL

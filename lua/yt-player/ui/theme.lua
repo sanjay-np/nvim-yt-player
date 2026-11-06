@@ -87,14 +87,14 @@ function M.setup(config)
 
 	M.setup_highlights(config.theme)
 
-	-- Update highlights dynamically if colorscheme changes
+	-- Update highlights dynamically if the colorscheme or background changes
+	-- (`:set background=light` on the default colorscheme fires no ColorScheme)
 	local augroup = vim.api.nvim_create_augroup("YTPlayerTheme", { clear = true })
-	vim.api.nvim_create_autocmd("ColorScheme", {
-		group = augroup,
-		callback = function()
-			M.setup_highlights(config.theme)
-		end,
-	})
+	local function refresh()
+		M.setup_highlights(config.theme)
+	end
+	vim.api.nvim_create_autocmd("ColorScheme", { group = augroup, callback = refresh })
+	vim.api.nvim_create_autocmd("OptionSet", { group = augroup, pattern = "background", callback = refresh })
 end
 
 --- Get icon by name
@@ -105,6 +105,12 @@ function M.icon(name)
 	return tbl[name] or ""
 end
 
+-- Each group as it read back right after this plugin last set it. On refresh,
+-- a group that is empty or still matches is ours to recolor; anything else was
+-- customised by the user and is left alone. (`default = true` alone would
+-- never recolor a group once set, so the palette could not follow a theme change.)
+local applied = {}
+
 --- Setup highlight groups linked to Neovim's standard theme
 ---@param theme_override string|nil
 function M.setup_highlights(theme_override)
@@ -112,8 +118,11 @@ function M.setup_highlights(theme_override)
 		-- Leave the terminal/editor background visible on every player surface.
 		opts.bg = "NONE"
 		opts.ctermbg = "NONE"
-		opts.default = true
-		vim.api.nvim_set_hl(0, name, opts)
+		local current = vim.api.nvim_get_hl(0, { name = name })
+		if next(current) == nil or vim.deep_equal(current, applied[name]) then
+			vim.api.nvim_set_hl(0, name, opts)
+			applied[name] = vim.api.nvim_get_hl(0, { name = name })
+		end
 	end
 
 	local function color(group, key, fallback)

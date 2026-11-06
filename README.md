@@ -29,10 +29,10 @@ The player opens as a framed terminal music station: an animated record deck, a 
 
 - 🚀 **Save 1.5GB+ RAM**: Stop keeping memory-hungry browser tabs open just to listen to study or coding music in the background.
 - ⚡ **Zero-Freeze Asynchronous IPC**: Communicates directly with a background `mpv` process over a local UNIX domain socket. Stream extraction and playback never block your editor or drop keystrokes.
-- ⏩ **Native SponsorBlock**: Automatically skips sponsor segments, promos, and non-music intros so your focus remains uninterrupted.
-- 📻 **Endless Autoplay Radio**: Automatically fetches and queues fresh YouTube Mix recommendations matching your active track before the queue ends.
-- 👥 **Multi-Instance Sync**: Open Neovim across multiple tmux panes or terminals—all instances automatically discover and coordinate playback with the shared background daemon.
-- 🎛️ **Zero Dependencies**: Pure Lua + `mpv` + `yt-dlp`. No Python daemons, no Node.js processes, no Electron bloat.
+- ⏩ **Optional SponsorBlock**: Set `sponsorblock = true` to skip sponsor segments, intros, outros, self-promos, and non-music sections so your focus remains uninterrupted (uses `curl`).
+- 📻 **Endless Autoplay Radio**: When the last track in the queue starts playing, fetches YouTube Mix recommendations for it and queues them so the music keeps going.
+- 👥 **Multi-Instance Sync**: Open Neovim across multiple tmux panes or terminals. They all share one background `mpv`: an instance that finds a player already running attaches to it instead of starting a second one.
+- 🎛️ **Zero Dependencies**: Pure Lua + `mpv` + `yt-dlp` (plus `curl` for the optional SponsorBlock). No Python daemons, no Node.js processes, no Electron bloat.
 
 ---
 
@@ -51,9 +51,11 @@ The player opens as a framed terminal music station: an animated record deck, a 
 - **📁 Master-Detail Playlists Manager (`:YT playlists`)**:
   - Browse local playlists and their tracks across two panes (or toggle with `Tab`). Create (`N`), rename (`r`), play (`<CR>`), queue (`a`), or remove tracks/playlists (`dd` with confirmation).
 - **🕐 Play History Timeline (`:YT history`)**:
-  - Persistent timeline with relative timestamps (`5m ago`, `2h ago`), instant replay, and one-key queueing. Clear history anytime with `:YT history_clear`.
+  - Persistent timeline with relative timestamps (`5m ago`, `2h ago`), instant replay, and one-key queueing. Clear history anytime with `:YT history clear` (or `:YT history_clear`).
 - **🎵 Rapid Playlist Ingestion (`:YT queue_playlist`)**:
-  - Ingest and parse entire YouTube playlists (100+ tracks) asynchronously in the background.
+  - Ingest and parse entire YouTube playlists (100+ tracks) asynchronously in the background. Playback starts right away if nothing is playing.
+- **💾 Session Resume (`:YT resume`)**:
+  - The queue, current track, position, volume, speed, and repeat mode are saved when Neovim exits and restored with `:YT resume`.
 - **✨ Adaptive Themes & Icons**:
   - Fully transparent background support with auto-adaptive palette matching your colorscheme. Supports both Unicode icons and Nerd Font icons (auto-detected via `vim.g.have_nerd_font` or configured explicitly).
 - **📊 Statusline & Lualine Integration**:
@@ -67,6 +69,7 @@ Before installing, ensure the following tools are available in your system `PATH
 - **Neovim** 0.9+
 - **mpv** (compiled with Lua support, enabled by default in most distribution packages)
 - **yt-dlp**
+- **curl** *(optional)*: only needed for SponsorBlock; preinstalled on macOS and most Linux distributions
 
 ### Installing `mpv` and `yt-dlp`
 
@@ -277,8 +280,8 @@ All commands are available under the master `:YT` command with tab completion:
 | `:YT queue_playlist <url>` | Parse and append an entire YouTube playlist |
 | `:YT playlists` | Open local playlists manager inside the Hub (Tab 4) |
 | `:YT history` | Open play history timeline inside the Hub (Tab 5) |
-| `:YT history_clear` | Clear saved play history |
-| `:YT resume` | Restore and resume the previous playback session |
+| `:YT history clear` / `:YT history_clear` | Clear saved play history |
+| `:YT resume` | Restore the queue, track, position, volume, speed, and repeat mode saved when Neovim last exited |
 
 ---
 
@@ -317,8 +320,7 @@ require("yt-player").setup({
     notify_on_track_change = true, -- notify when a new song starts playing
     format = "▶ {title} - {artist}",
     icon_playing = "▶",
-    icon_paused = "⏸",
-    timeout = 3000, -- notification timeout in ms
+    timeout = 3000, -- ms; honoured by notification UIs such as nvim-notify and snacks.nvim
   },
 
   player = {
@@ -354,7 +356,7 @@ require("yt-player").setup({
     player_client = "android,tv_simply",
   },
 
-  sponsorblock = false, -- set to true to automatically skip YouTube sponsor segments
+  sponsorblock = false, -- true: skip sponsor, intro, outro, self-promo, and non-music segments (needs curl)
 })
 ```
 
@@ -372,14 +374,16 @@ Customize `statusline.format` with these placeholders:
 - `{duration}` — Total track duration (e.g. `4:10`)
 - `{progress}` — Graphical progress bar (e.g. `▓▓▓░░░░░░░`)
 - `{volume}` — Volume percentage (`0`–`100`)
-- `{speed}` — Speed multiplier (e.g. `1.25x`)
+- `{speed}` — Speed multiplier, shown only when not `1x` (e.g. `1.25x`)
 - `{radio}` — Autoplay radio status icon (`📻` when enabled)
 
 ### Notification Placeholders
 Customize `notifications.format` with:
-- `{icon}` — Play icon
+- `{icon}` — Play icon (`notifications.icon_playing`)
 - `{title}` — Track title
-- `{artist}` — Channel name
+- `{artist}` — Channel name (when unknown, it is dropped along with the separator before it)
+
+One notification is shown per track, once its real title is known.
 
 ### Lualine Integration
 Add `yt-player` directly into any lualine section:
@@ -436,7 +440,7 @@ Neovim (Lua) ── UNIX Domain Socket ──➔ mpv ──➔ yt-dlp ──➔ 
 ```
 
 1. **Client / Daemon Architecture**: Neovim spawns a detached, headless background `mpv` process with IPC enabled over a local UNIX domain socket.
-2. **Multi-Instance Registry**: Multiple Neovim instances safely coordinate playback through a client registry. When one instance closes, playback continues if other instances or background tasks are active.
+2. **Multi-Instance Registry**: All Neovim instances share one `mpv` through a socket at `stdpath("cache")/nvim-yt-player/ipc.sock`. An instance that finds a player listening there attaches to it rather than spawning another. A client registry tracks the open instances: playback continues while any of them is running, and `mpv` is shut down when the last one exits.
 3. **Zero UI Blocking**: All network operations, JSON parsing, and metadata fetching (`yt-dlp`) execute asynchronously using `vim.uv` (libuv) child processes and pipes.
 
 ---
@@ -466,6 +470,12 @@ Neovim (Lua) ── UNIX Domain Socket ──➔ mpv ──➔ yt-dlp ──➔ 
 - **mpv exited with error?**  
   Ensure `mpv` was compiled with Lua support. Most native distribution package managers (`brew`, `apt`, `pacman`) compile with Lua enabled by default.
 
+- **SponsorBlock never skips anything?**  
+  Check that `sponsorblock = true` is set and `curl` is on your `PATH`. Segments come from community submissions, so many music videos simply have none.
+
+- **Warning that a history or playlists file was unreadable?**  
+  This usually means the JSON was edited by hand and is no longer valid. The plugin moves the file aside to `<name>.json.corrupt-<timestamp>` in `stdpath("data")` instead of overwriting it. Fix the JSON in that backup and rename it back to restore your data.
+
 ---
 
 ## ❓ FAQ
@@ -474,7 +484,7 @@ Neovim (Lua) ── UNIX Domain Socket ──➔ mpv ──➔ yt-dlp ──➔ 
 A: No. It streams only the audio tracks in real-time, saving disk space and bandwidth.
 
 **Q: Can multiple Neovim instances share playback?**  
-A: Yes! A shared client registry coordinates instances. When you start audio in one instance, others can view the statusline or control the active player.
+A: Yes. Whichever instance starts playback runs a single background `mpv`, and the others share it. An instance opened after playback began attaches at startup. One that was already open attaches the first time you use `:YT` (or the Hub) in it. Attached instances show the same statusline and can control the player. Closing one instance doesn't stop the music while others are still open.
 
 **Q: Does it work with private playlists?**  
 A: Local playlists created inside Neovim (`:YT playlists`) are stored locally as JSON in your Neovim data path (`stdpath('data')`).

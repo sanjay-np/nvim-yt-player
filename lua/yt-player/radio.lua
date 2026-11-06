@@ -7,14 +7,19 @@ M.is_fetching = false
 M.active_handle = nil
 M.failed_video_ids = {}
 M.cooldown_seconds = 60
+-- Bumped on every fetch and cancel; a callback from an older fetch is ignored
+M.generation = 0
 
 --- Cancel any active recommendation fetch job
 function M.cancel()
+	M.generation = M.generation + 1
 	if M.active_handle then
+		-- Only signal here. The spawn exit callback closes the handle and the
+		-- stdout pipe; closing the handle now would skip that callback, leaking
+		-- the pipe and leaving the killed yt-dlp unreaped (a zombie).
 		pcall(function()
 			if not M.active_handle:is_closing() then
 				M.active_handle:kill(15) -- SIGTERM
-				M.active_handle:close()
 			end
 		end)
 		M.active_handle = nil
@@ -225,7 +230,13 @@ function M.check_and_trigger()
 
 	vim.notify("YT Radio: Fetching recommendations based on active track...", vim.log.levels.INFO)
 
+	M.generation = M.generation + 1
+	local generation = M.generation
 	M.active_handle = M.get_related_tracks(video_id, limit, function(tracks, err)
+		-- Cancelled (radio toggled off) or superseded by a newer fetch
+		if generation ~= M.generation then
+			return
+		end
 		M.active_handle = nil
 		state.radio_fetching = false
 
@@ -245,6 +256,23 @@ function M.check_and_trigger()
 			return
 		end
 
+		-- The user may have moved on while yt-dlp ran (played another track,
+		-- queued more, stopped mpv). Only extend the queue if the track we
+		-- fetched for is still the last one; otherwise re-check for whatever is
+		-- playing now, so the new track gets its own recommendations.
+		local plist_now = state.playlist or {}
+		local pos_now = state.playlist_pos or 0
+		local current_now = plist_now[pos_now + 1]
+		if
+			not mpv.is_running()
+			or not current_now
+			or M.extract_video_id(current_now.filename) ~= video_id
+			or pos_now < #plist_now - 1
+		then
+			M.check_and_trigger()
+			return
+		end
+
 		-- Load history to deduplicate
 		local history = {}
 		local ok_hist, history_mod = pcall(require, "yt-player.history")
@@ -254,7 +282,7 @@ function M.check_and_trigger()
 
 		-- Set up set of existing URLs in playlist to filter out duplicates
 		local existing = {}
-		for _, item in ipairs(plist) do
+		for _, item in ipairs(plist_now) do
 			if item.filename then
 				existing[item.filename] = true
 			end
@@ -267,17 +295,16 @@ function M.check_and_trigger()
 
 		local added_count = 0
 		for _, track in ipairs(tracks) do
-			if track.url ~= "" and not existing[track.url] then
-				-- Append to metadata store so the UI is immediately populated
+			-- "append-play" also resumes an mpv that went idle at the end of the
+			-- queue; plain "append" would queue the tracks and stay silent.
+			if track.url ~= "" and not existing[track.url] and mpv.send_command({ "loadfile", track.url, "append-play" }) then
+				-- Record metadata only for tracks that actually reached mpv
 				state.playlist_meta = state.playlist_meta or {}
 				state.artist_map = state.artist_map or {}
 				state.playlist_meta[track.url] = track.title or "Unknown"
 				if track.channel and track.channel ~= "" then
 					state.artist_map[track.url] = track.channel
 				end
-
-				-- Append to mpv queue
-				mpv.send_command({ "loadfile", track.url, "append" })
 				added_count = added_count + 1
 			end
 		end

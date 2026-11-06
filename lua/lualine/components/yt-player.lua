@@ -17,7 +17,8 @@ function M:update_status()
 	if not ok or not yt.is_connected() then
 		return ""
 	end
-	return yt.statusline()
+	-- lualine output is statusline syntax: a literal "%" (e.g. "100% Hits") must be "%%"
+	return (yt.statusline():gsub("%%", "%%%%"))
 end
 
 return M

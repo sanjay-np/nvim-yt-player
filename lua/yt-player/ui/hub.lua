@@ -44,6 +44,20 @@ local TABS = {
 	{ id = 5, name = "History", icon_key = "history" },
 }
 
+--- Stop the in-flight yt-dlp search, if any. Only signal it: the spawn exit
+--- callback closes the handle and pipes.
+function M.stop_search_job()
+	local handle = M.search_handle
+	M.search_handle = nil
+	if handle then
+		pcall(function()
+			if not handle:is_closing() then
+				handle:kill(15)
+			end
+		end)
+	end
+end
+
 --- Execute a YouTube search within the Hub
 ---@param query string
 ---@param append boolean|nil
@@ -75,7 +89,10 @@ function M.run_search(query, append)
 	local offset = append and #M.search_results or 0
 	local limit = math.max(1, tonumber(require("yt-player").config.search.limit) or 10)
 	local search_mod = require("yt-player.search")
-	search_mod.search(query, limit, offset, function(results, err)
+	-- The generation check drops a superseded search's results; also stop its
+	-- yt-dlp so repeated searches don't leave processes running.
+	M.stop_search_job()
+	M.search_handle = search_mod.search(query, limit, offset, function(results, err)
 		vim.schedule(function()
 			if generation ~= M.search_generation then return end
 			results = results or {}
@@ -711,6 +728,13 @@ end
 ---@param tab_idx number|nil
 ---@param search_query string|nil
 function M.open(tab_idx, search_query)
+	-- The hub float lives in one tabpage. Opened from another tab, reopen it
+	-- here instead of jumping back to (or toggling) the hidden one.
+	if M.win_id and vim.api.nvim_win_is_valid(M.win_id) and not window.is_visible(M.win_id) then
+		M.close()
+	end
+	-- Show the shared player if another Neovim started it after this one launched
+	require("yt-player.mpv").attach_if_running()
 	if tab_idx and tab_idx >= 1 and tab_idx <= #TABS then
 		M.active_tab = tab_idx
 	elseif not tab_idx and (not M.win_id or not vim.api.nvim_win_is_valid(M.win_id)) then
@@ -787,6 +811,7 @@ function M.close(wiping)
 	if is_closing then return end
 	is_closing = true
 	M.search_generation = M.search_generation + 1
+	M.stop_search_job()
 	M.search_loading, M.search_loading_more = false, false
 	M.close_search_prompt()
 	if M.search_prompt_buf and vim.api.nvim_buf_is_valid(M.search_prompt_buf) then
@@ -809,7 +834,7 @@ function M.close(wiping)
 end
 
 function M.toggle(tab_idx, search_query)
-	if M.win_id and vim.api.nvim_win_is_valid(M.win_id) and (not tab_idx or tab_idx == M.active_tab) and not search_query then
+	if window.is_visible(M.win_id) and (not tab_idx or tab_idx == M.active_tab) and not search_query then
 		M.close()
 	else M.open(tab_idx, search_query) end
 end

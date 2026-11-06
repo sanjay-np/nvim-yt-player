@@ -51,6 +51,7 @@ function M.open_float(opts)
 		vim.bo[buf].buftype = "nofile"
 		vim.bo[buf].bufhidden = "wipe"
 		vim.bo[buf].swapfile = false
+		vim.bo[buf].undolevels = -1
 	end
 
 	local win_config = {
@@ -76,8 +77,18 @@ function M.open_float(opts)
 	end
 
 	local enter = opts.enter ~= false
-	local win = vim.api.nvim_open_win(buf, enter, win_config)
+	local ok, win = pcall(vim.api.nvim_open_win, buf, enter, win_config)
+	if not ok then
+		-- Older Neovim rejects a title/footer when border = "none"; open without them
+		win_config.title, win_config.title_pos = nil, nil
+		win_config.footer, win_config.footer_pos = nil, nil
+		win = vim.api.nvim_open_win(buf, enter, win_config)
+	end
 	positions[win] = opts.position or "center"
+	-- Keep `:e file` (and pickers) from replacing the player buffer inside the float
+	pcall(function()
+		vim.wo[win].winfixbuf = true
+	end)
 
 	-- Window styling
 	local winhl = "Normal:YtPlayerNormal,NormalNC:YtPlayerNormal,NormalFloat:YtPlayerNormal,FloatBorder:YtPlayerBorder,FloatTitle:YtPlayerTitle,FloatFooter:YtPlayerFooter,CursorLine:YtPlayerSelected"
@@ -98,10 +109,21 @@ end
 function M.set_footer(win, text)
 	if not win or not vim.api.nvim_win_is_valid(win) or vim.fn.has("nvim-0.10") == 0 then return end
 	local width = vim.api.nvim_win_get_width(win)
-	vim.api.nvim_win_set_config(win, {
+	-- Called from refresh timers; an unsupported footer must not raise every tick
+	pcall(vim.api.nvim_win_set_config, win, {
 		footer = require("yt-player.utils").safe_truncate(text, math.max(1, width - 4)),
 		footer_pos = "center",
 	})
+end
+
+--- True when `win` is valid and in the current tabpage. Floats belong to a
+--- single tabpage, so a valid window can still be invisible to the user.
+---@param win number|nil
+---@return boolean
+function M.is_visible(win)
+	return win ~= nil
+		and vim.api.nvim_win_is_valid(win)
+		and vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()
 end
 
 function M.resize(win, width, height, position)
@@ -125,9 +147,18 @@ function M.safe_close(win, buf)
 end
 
 --- Release render state when Neovim is already wiping the buffer.
+--- If a float outlives its buffer (it was replaced, e.g. `:e!` or Neovim
+--- without 'winfixbuf'), close it so it doesn't linger showing another file.
 function M.forget(win, buf)
 	if win then positions[win] = nil end
 	if buf then last_lines[buf] = nil end
+	if win then
+		vim.schedule(function()
+			if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_config(win).relative ~= "" then
+				pcall(vim.api.nvim_win_close, win, true)
+			end
+		end)
+	end
 end
 
 --- Render lines to buffer with optional extmarks and highlights
@@ -140,6 +171,11 @@ function M.render(buf, lines, highlights)
 	end
 
 	if not vim.deep_equal(last_lines[buf], lines) then
+		-- Timers redraw these buffers several times a second. With undo on, every
+		-- redraw piles into one never-closed undo block that grows without bound.
+		if vim.bo[buf].undolevels ~= -1 then
+			vim.bo[buf].undolevels = -1
+		end
 		vim.bo[buf].modifiable = true
 		vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 		vim.bo[buf].modifiable = false

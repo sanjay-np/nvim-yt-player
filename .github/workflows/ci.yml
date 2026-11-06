@@ -38,7 +38,6 @@ jobs:
             "yt-player.notify",
             "yt-player.player",
             "yt-player.playlists",
-            "yt-player.queue",
             "yt-player.radio",
             "yt-player.search",
             "yt-player.session",
@@ -90,3 +89,6 @@ jobs:
 
       - name: Run UI Regression Tests
         run: nvim --headless -u NONE -i NONE -n -c 'set rtp+=.' -c 'lua dofile("tests/ui_spec.lua")'
+
+      - name: Run Core Regression Tests
+        run: nvim --headless -u NONE -i NONE -n -c 'set rtp+=.' -c 'lua dofile("tests/core_spec.lua")'

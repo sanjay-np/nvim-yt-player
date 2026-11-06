@@ -46,7 +46,7 @@ function M._register()
 						yt().load("ytdl://ytsearch:" .. args)
 					end
 				else
-					if not require("yt-player.mpv").is_running() then
+					if not require("yt-player.mpv").attach_if_running() then
 						vim.notify("YT Control: mpv is not running. Play a track/URL first.", vim.log.levels.WARN)
 						return
 					end
@@ -157,7 +157,7 @@ function M._register()
 				if args == "" then
 					-- No arg: show current speed
 					local state = require("yt-player.state").get_current()
-					vim.notify(string.format("YT Control: Speed %.2gx", state.speed or 1), vim.log.levels.INFO)
+					vim.notify("YT Control: Speed " .. require("yt-player.utils").format_speed(state.speed), vim.log.levels.INFO)
 					return
 				end
 
@@ -276,10 +276,16 @@ function M._register()
 			nargs = 1,
 		},
 		history = {
-			impl = function()
+			impl = function(args)
+				-- Tab completion offers `:YT history clear`
+				if vim.trim(args or "") == "clear" then
+					require("yt-player.history").clear()
+					return
+				end
 				require("yt-player.ui.hub").open(5)
 			end,
-			desc = "Browse play history inside the Hub",
+			desc = "Browse play history inside the Hub (or `clear` it)",
+			nargs = "?",
 		},
 		history_clear = {
 			impl = function()
@@ -340,7 +346,8 @@ function M._register()
 			return
 		end
 
-		if subcmd.require_running and not require("yt-player.mpv").is_running() then
+		-- Another Neovim may have started the shared player after this one launched
+		if subcmd.require_running and not require("yt-player.mpv").attach_if_running() then
 			vim.notify("YT Control: mpv is not running. Play a track/URL first.", vim.log.levels.WARN)
 			return
 		end

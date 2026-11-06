@@ -76,10 +76,44 @@ local function unregister_client()
 	return active
 end
 
+--- True when an mpv process is accepting connections on the shared socket.
+--- sockconnect is synchronous, so callers get a definite answer before deciding
+--- whether to spawn a new player.
+local function socket_is_live()
+	if vim.fn.getftype(M.ipc_socket_path) ~= "socket" then
+		return false
+	end
+	local ok, chan = pcall(vim.fn.sockconnect, "pipe", M.ipc_socket_path, { rpc = false })
+	if ok and type(chan) == "number" and chan > 0 then
+		pcall(vim.fn.chanclose, chan)
+		return true
+	end
+	return false
+end
+
+--- Control an mpv started by another Neovim instance instead of owning one.
+local function attach_to_running()
+	M.is_external_client = true
+	register_client()
+	M._connect_ipc_with_retry(0)
+end
+
+--- Attach to a player started by another instance after this one launched.
+---@return boolean attached  true if this instance now controls a running player
+function M.attach_if_running()
+	if M.is_running() then
+		return true
+	end
+	if M.shutting_down or not socket_is_live() then
+		return false
+	end
+	attach_to_running()
+	return true
+end
+
 function M.setup(config)
 	M.config = config
 	M.shutting_down = false
-	M.is_external_client = false
 
 	-- Ensure cache directory exists
 	local cache_dir = vim.fn.stdpath("cache") .. "/nvim-yt-player"
@@ -87,46 +121,58 @@ function M.setup(config)
 		vim.fn.mkdir(cache_dir, "p")
 	end
 
-	-- Auto-connect if another instance is running
-	local active_clients = cleanup_registry()
-	if #active_clients > 0 and vim.fn.filereadable(M.ipc_socket_path) == 1 then
-		M.is_external_client = true
-		register_client()
-		M._connect_ipc_with_retry(0)
+	-- Re-running setup (e.g. re-sourcing the config) must not open a second
+	-- IPC connection alongside the one already in use.
+	if M.is_running() or M.ipc_pipe then
+		return
+	end
+
+	-- Auto-connect if another instance is already running mpv
+	if socket_is_live() then
+		attach_to_running()
 	end
 end
 
-local function ensure_sponsorblock_script()
-	local script_path = vim.fn.stdpath("cache") .. "/yt_sponsorblock.lua"
-	if vim.fn.filereadable(script_path) == 1 then
-		return script_path
-	end
-
-	-- A minimal local Lua sponsorblock script for MPV
-	local script_content = [[
+-- A minimal SponsorBlock script for mpv. It is written to the cache directory
+-- and rewritten whenever this text changes, so fixes reach existing installs.
+local SPONSORBLOCK_SCRIPT = [[
 local mp = require 'mp'
 local utils = require 'mp.utils'
 local msg = require 'mp.msg'
 
+-- JSON array of categories, percent-encoded: curl treats a raw "[" as URL globbing.
+local CATEGORIES = "%5B%22sponsor%22%2C%22intro%22%2C%22outro%22%2C%22interaction%22%2C%22selfpromo%22%2C%22music_offtopic%22%5D"
+
 local segments = nil
+local current_id = nil
+
+local function video_id_from(path)
+    for _, pattern in ipairs({ "v=([%w_%-]+)", "youtu%.be/([%w_%-]+)", "embed/([%w_%-]+)", "shorts/([%w_%-]+)" }) do
+        local id = path:match(pattern)
+        if id then return id end
+    end
+end
 
 mp.register_event("file-loaded", function()
     segments = nil
-    local video_id = string.match(path, "v=([%w_%-]+)") or string.match(path, "youtu%.be/([%w_%-]+)") or string.match(path, "embed/([%w_%-]+)") or string.match(path, "shorts/([%w_%-]+)")
+    local video_id = video_id_from(mp.get_property("path", ""))
+    current_id = video_id
     if not video_id or #video_id ~= 11 then return end
 
     msg.info("Fetching SponsorBlock for " .. video_id)
-    local url = "https://sponsor.ajay.app/api/skipSegments?videoID=" .. video_id .. "&categories=[\"sponsor\",\"intro\",\"outro\",\"interaction\",\"selfpromo\",\"music_offtopic\"]"
-    
+    local url = "https://sponsor.ajay.app/api/skipSegments?videoID=" .. video_id .. "&categories=" .. CATEGORIES
+
     mp.command_native_async({
         name = "subprocess",
-        args = {"curl", "-s", url},
+        args = {"curl", "-sf", "--globoff", url},
         capture_stdout = true,
         playback_only = false,
-    }, function(success, res, err)
+    }, function(success, res)
+        -- Ignore a late reply for a track that is no longer playing.
+        if video_id ~= current_id then return end
         if success and res.status == 0 and res.stdout and res.stdout ~= "" then
-            local ok, parsed = pcall(utils.parse_json, res.stdout)
-            if ok and type(parsed) == "table" then
+            local parsed = utils.parse_json(res.stdout)
+            if type(parsed) == "table" then
                 segments = parsed
                 msg.info("SponsorBlock segments loaded for " .. video_id)
             end
@@ -149,14 +195,28 @@ mp.add_periodic_timer(1, function()
     end
 end)
 ]]
+
+local function ensure_sponsorblock_script()
+	local script_path = vim.fn.stdpath("cache") .. "/yt_sponsorblock.lua"
+	local existing = io.open(script_path, "r")
+	if existing then
+		local content = existing:read("*a")
+		existing:close()
+		if content == SPONSORBLOCK_SCRIPT then
+			return script_path
+		end
+	end
+
+	yt_utils.ensure_dir(script_path)
 	local f = io.open(script_path, "w")
 	if f then
-		f:write(script_content)
+		f:write(SPONSORBLOCK_SCRIPT)
 		f:close()
 		return script_path
 	end
 	return nil
 end
+M._ensure_sponsorblock_script = ensure_sponsorblock_script
 
 --- Start mpv with IPC enabled. If a url is provided, it is passed directly
 --- on the command line so playback begins immediately without waiting for IPC.
@@ -174,6 +234,17 @@ function M.start(url)
 		return true
 	end
 
+	-- Another Neovim instance may have started mpv after this one ran setup().
+	-- Attach to it: a second mpv would take over the socket path while the
+	-- first kept playing, leaving two players running at once.
+	if socket_is_live() then
+		attach_to_running()
+		if url then
+			M.send_command({ "loadfile", url, "replace" })
+		end
+		return true
+	end
+
 	-- Ensure yt-dlp and mpv exist
 	if vim.fn.executable("mpv") == 0 then
 		vim.notify("YT Control: mpv is not installed or not in PATH", vim.log.levels.ERROR)
@@ -184,11 +255,8 @@ function M.start(url)
 		return false
 	end
 
-	-- Remove stale socket file only if no active clients are running
-	local active_clients = cleanup_registry()
-	if #active_clients == 0 then
-		vim.fn.delete(M.ipc_socket_path)
-	end
+	-- Nothing is listening, so any socket file left behind is stale
+	vim.fn.delete(M.ipc_socket_path)
 
 	local cmd = {
 		"mpv",
@@ -233,7 +301,12 @@ function M.start(url)
 				end
 			end
 		end,
-		on_exit = function(_, code)
+		on_exit = function(job_id, code)
+			-- A job abandoned after a failed IPC connect can exit after a newer
+			-- player has started; it must not tear down the newer one's state.
+			if M.mpv_job_id ~= nil and M.mpv_job_id ~= job_id then
+				return
+			end
 			M.mpv_job_id = nil
 			M.ipc_connected = false
 			M._cleanup_ipc()
@@ -301,13 +374,19 @@ function M._connect_ipc_with_retry(attempt)
 						if M.shutting_down then
 							return
 						end
-						if M.mpv_job_id ~= nil then
+						local owned = M.mpv_job_id ~= nil
+						if owned then
 							local id = M.mpv_job_id
 							M.mpv_job_id = nil
 							pcall(vim.fn.jobstop, id)
 						end
 						M._cleanup_ipc()
-						vim.fn.delete(M.ipc_socket_path)
+						state_mod.set_connected(false)
+						-- Only remove the socket of a player we started; an external
+						-- client must not unlink another instance's live socket.
+						if owned then
+							vim.fn.delete(M.ipc_socket_path)
+						end
 					end)
 				end
 				return
@@ -364,24 +443,18 @@ function M._connect_ipc_with_retry(attempt)
 				if M.shutting_down then
 					return
 				end
-				if read_err then
+				if read_err or not data then
+					-- Read error or EOF: mpv went away. An external client has no
+					-- job on_exit to report this, so mark the state disconnected here.
 					vim.schedule(function()
-						M.ipc_connected = false
 						M._cleanup_ipc()
+						state_mod.set_connected(false)
 					end)
 					return
 				end
 
-				if data then
-					ipc_buffer = ipc_buffer .. data
-					M._process_ipc_buffer()
-				else
-					-- EOF
-					vim.schedule(function()
-						M.ipc_connected = false
-						M._cleanup_ipc()
-					end)
-				end
+				ipc_buffer = ipc_buffer .. data
+				M._process_ipc_buffer()
 			end)
 		end)
 	end, delay)
@@ -488,6 +561,11 @@ function M._handle_ipc_message(line)
 			return
 		end
 
+		if prop_name == "media-title" then
+			M._on_media_title(prop_data)
+			return
+		end
+
 		local mapping = prop_map[prop_name]
 		if mapping then
 			state_mod.update({ [mapping.key] = prop_data or mapping.default })
@@ -510,32 +588,6 @@ function M._handle_ipc_message(line)
 			end
 		end
 
-		-- Record to play history when a new track starts
-		if prop_name == "media-title" and prop_data and prop_data ~= "" then
-			local current = state_mod.get_current()
-			local active_url = M.current_url or ""
-			if current.playlist and current.playlist_pos then
-				local active_item = current.playlist[current.playlist_pos + 1]
-				if active_item and active_item.filename and active_item.filename ~= "" then
-					active_url = active_item.filename
-					M.current_url = active_url
-				end
-			end
-
-			pcall(function()
-				require("yt-player.history").add({
-					title = prop_data,
-					url = active_url,
-					duration = current.duration or 0,
-				})
-			end)
-			-- Populate artist from artist_map (set by search/radio/queue)
-			local artist_map = state_mod.current.artist_map or {}
-			if active_url ~= "" and artist_map[active_url] then
-				state_mod.update({ artist = artist_map[active_url] })
-			end
-		end
-
 		-- Extract artist from mpv metadata if available (fallback)
 		if prop_name == "metadata" and type(prop_data) == "table" then
 			local meta_artist = prop_data.artist or prop_data.Artist or ""
@@ -547,6 +599,39 @@ function M._handle_ipc_message(line)
 		if msg.reason ~= "stop" and msg.reason ~= "quit" then
 			state_mod.update({ playing = false, position = 0, title = "Finished" })
 		end
+	end
+end
+
+--- A new media-title means a new track: update title and artist together so the
+--- track-change notification sees the artist, then record the track in history.
+---@param title string|nil
+function M._on_media_title(title)
+	local current = state_mod.get_current()
+	local active_url = M.current_url or ""
+	local active_item = current.playlist and current.playlist_pos and current.playlist[current.playlist_pos + 1]
+	if active_item and active_item.filename and active_item.filename ~= "" then
+		active_url = active_item.filename
+		M.current_url = active_url
+	end
+
+	-- Artist comes from search/radio/queue metadata, then mpv's own tags. Fall
+	-- back to "" so the previous track's artist never carries over.
+	local metadata = type(current.metadata) == "table" and current.metadata or {}
+	local artist = (active_url ~= "" and (current.artist_map or {})[active_url])
+		or metadata.artist
+		or metadata.Artist
+		or ""
+
+	state_mod.update({ title = title or "Unknown", artist = artist })
+
+	if title and title ~= "" then
+		pcall(function()
+			require("yt-player.history").add({
+				title = title,
+				url = active_url,
+				duration = current.duration or 0,
+			})
+		end)
 	end
 end
 
@@ -629,6 +714,8 @@ function M._cleanup_ipc()
 	M.ipc_connected = false
 	M.is_external_client = false
 	ipc_buffer = ""
+	-- Commands queued for a player that is gone must not replay into the next one
+	pending_commands = {}
 end
 
 function M.shutdown()

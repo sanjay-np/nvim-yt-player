@@ -172,6 +172,10 @@ function M.refresh_float()
 end
 
 function M.open_float()
+	-- Floats live in one tabpage; reopen here rather than focus a hidden one
+	if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) and not window.is_visible(M.float.win_id) then
+		M.close_float()
+	end
 	if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
 		M.refresh_float()
 		vim.api.nvim_set_current_win(M.float.win_id)
@@ -237,7 +241,7 @@ function M.close_float(wiping)
 end
 
 function M.toggle_float()
-	if M.float.win_id and vim.api.nvim_win_is_valid(M.float.win_id) then
+	if window.is_visible(M.float.win_id) then
 		M.close_float()
 	else
 		M.open_float()
@@ -266,6 +270,10 @@ function M.refresh_panel()
 end
 
 function M.open_panel()
+	-- The sidebar split belongs to one tabpage; reopen it in the current one
+	if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) and not window.is_visible(M.panel.win_id) then
+		M.close_panel()
+	end
 	if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
 		M.refresh_panel()
 		vim.api.nvim_set_current_win(M.panel.win_id)
@@ -276,6 +284,7 @@ function M.open_panel()
 	vim.bo[M.panel.buf_id].buftype = "nofile"
 	vim.bo[M.panel.buf_id].bufhidden = "wipe"
 	vim.bo[M.panel.buf_id].swapfile = false
+	vim.bo[M.panel.buf_id].undolevels = -1
 	vim.bo[M.panel.buf_id].filetype = "yt-player-panel"
 
 	local panel_w = math.max(12, math.min(M.config.width or 45, math.floor(vim.o.columns * 0.5)))
@@ -291,6 +300,9 @@ function M.open_panel()
 	vim.wo[M.panel.win_id].signcolumn = "no"
 	vim.wo[M.panel.win_id].wrap = false
 	vim.wo[M.panel.win_id].winfixwidth = true
+	pcall(function()
+		vim.wo[M.panel.win_id].winfixbuf = true -- keep `:e file` out of the sidebar
+	end)
 
 	setup_keymaps(M.panel.buf_id, false)
 	M.refresh_panel()
@@ -332,7 +344,7 @@ function M.close_panel(wiping)
 end
 
 function M.toggle_panel()
-	if M.panel.win_id and vim.api.nvim_win_is_valid(M.panel.win_id) then
+	if window.is_visible(M.panel.win_id) then
 		M.close_panel()
 	else
 		M.open_panel()

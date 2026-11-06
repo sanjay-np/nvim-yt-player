@@ -69,7 +69,7 @@ function M.get_statusline()
 		title = utils.safe_truncate(title, trunc_limit)
 	end
 
-	local speed = (state.speed and state.speed ~= 1) and string.format("%.2gx", state.speed) or ""
+	local speed = (state.speed and state.speed ~= 1) and utils.format_speed(state.speed) or ""
 	local radio_tag = state.radio_enabled and "📻" or ""
 
 	local tokens = {

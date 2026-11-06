@@ -20,7 +20,6 @@ M.config = {
 		notify_on_track_change = true,
 		format = "▶ {title} - {artist}",
 		icon_playing = "▶",
-		icon_paused = "⏸",
 		timeout = 3000,
 	},
 
@@ -148,16 +147,19 @@ function M.queue(item, silent)
 	end
 end
 
+-- The statusline helpers run on every redraw, possibly before setup() (e.g.
+-- lualine loads first and :YT later runs setup), so they must not assume it ran.
+
 function M.statusline()
-	return M.status.get_statusline()
+	return M.status and M.status.get_statusline() or ""
 end
 
 function M.get_state()
-	return M.state.get_current()
+	return require("yt-player.state").get_current()
 end
 
 function M.is_connected()
-	return M.mpv.is_running() and M.mpv.ipc_connected
+	return M.mpv ~= nil and M.mpv.is_running() and M.mpv.ipc_connected
 end
 
 return M

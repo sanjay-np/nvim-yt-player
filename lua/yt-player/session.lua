@@ -42,8 +42,16 @@ end
 
 --- Restore playback session from disk
 function M.restore()
-	local data, is_corrupt = utils.read_json_file(session_path(), nil)
-	if is_corrupt or not data or type(data) ~= "table" or not data.playlist or #data.playlist == 0 then
+	local data, is_corrupt = utils.read_json_file(session_path(), {})
+	local tracks = {}
+	if not is_corrupt and type(data.playlist) == "table" then
+		for _, item in ipairs(data.playlist) do
+			if type(item) == "table" and type(item.filename) == "string" and item.filename ~= "" then
+				table.insert(tracks, item.filename)
+			end
+		end
+	end
+	if #tracks == 0 then
 		vim.notify("YT Control: No saved session found", vim.log.levels.WARN)
 		return
 	end
@@ -56,30 +64,28 @@ function M.restore()
 	-- 1. Restore playlist metadata so UI is immediately accurate
 	state_mod.current.playlist_meta = state_mod.current.playlist_meta or {}
 	state_mod.current.artist_map = state_mod.current.artist_map or {}
-	if data.playlist_meta then
+	if type(data.playlist_meta) == "table" then
 		for k, v in pairs(data.playlist_meta) do
 			state_mod.current.playlist_meta[k] = v
 		end
 	end
-	if data.artist_map then
+	if type(data.artist_map) == "table" then
 		for k, v in pairs(data.artist_map) do
 			state_mod.current.artist_map[k] = v
 		end
 	end
-
-
 
 	-- 2. Start mpv in idle mode if it is not already running
 	if not mpv.is_running() then
 		mpv.start(nil)
 	end
 
-	-- 4. Load tracks and configure properties sequentially
+	-- 3. Load tracks and configure properties sequentially
 	local function apply_session()
 		-- Load all files into mpv playlist
-		for i, item in ipairs(data.playlist) do
+		for i, filename in ipairs(tracks) do
 			local mode = (i == 1) and "replace" or "append"
-			mpv.send_command({ "loadfile", item.filename, mode })
+			mpv.send_command({ "loadfile", filename, mode })
 		end
 
 		-- Restore playback properties after a short delay
@@ -91,7 +97,7 @@ function M.restore()
 			mpv.send_command({ "set_property", "loop-playlist", data.loop_playlist or "no" })
 
 			-- Seek to position (give file parsing a slight buffer time)
-			if data.position and data.position > 0 then
+			if type(data.position) == "number" and data.position > 0 then
 				vim.defer_fn(function()
 					mpv.send_command({ "seek", data.position, "absolute" })
 				end, 1000)

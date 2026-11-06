@@ -35,9 +35,22 @@ end
 -- Throttle statusline redraws to max 5/sec
 local last_redraw = 0
 
+-- Titles shown while a track loads or after it ends, plus the raw URL/filename
+-- mpv reports before yt-dlp resolves the real title. None is a track change.
+local PLACEHOLDER_TITLES = { ["Loading..."] = true, ["Finished"] = true, ["Unknown"] = true }
+
+local function is_track_title(title)
+	return type(title) == "string"
+		and title ~= ""
+		and not PLACEHOLDER_TITLES[title]
+		and not title:match("^https?://")
+		and not title:match("^ytdl://")
+		and not title:match("^watch%?v=")
+end
+
 function M.update(data)
 	-- Notify on track change
-	if data.title and data.title ~= M.current.title then
+	if is_track_title(data.title) and data.title ~= M.current.title then
 		if M.config.notifications and M.config.notifications.notify_on_track_change then
 			require("yt-player.notify").track_change(data.title, data.artist)
 		end
